@@ -79,10 +79,21 @@ describe('the agent door refuses what is not a question', () => {
     expect(rpc('delete_everything', {}).text).toContain('delete_everything')
   })
 
-  test('there are five tools and no way to delete a note', () => {
+  test('there are six tools and no way to delete a note', () => {
     const reply = answer('POST', '/mcp', new URLSearchParams(), { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const names = ((reply?.body as { result: { tools: { name: string }[] } }).result.tools).map((one) => one.name)
-    expect(names).toEqual(['notes', 'add_note', 'reply_to_note', 'resolve_note', 'reanchor_note'])
+    expect(names).toEqual([
+      'notes',
+      'add_note',
+      'reply_to_note',
+      'resolve_note',
+      'reanchor_note',
+      /* Reads a document again and lifts the author's own annotations out of
+         it. Still nothing that removes anything: the sixth tool CANNOT delete
+         either, which is the whole reason it needed an essay — an annotation
+         taken out of a .tex is marked gone and kept. */
+      'read_source_notes',
+    ])
   })
 })
 

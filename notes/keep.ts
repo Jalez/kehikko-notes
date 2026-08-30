@@ -134,6 +134,35 @@ export type Op =
   | { op: 'reply'; id: string; body: string; by: string; viaMcp?: boolean }
   | { op: 'resolve'; id: string; done: boolean; by: string; viaMcp?: boolean }
   | { op: 'reanchor'; id: string; from: number; to: number; quoted: string; by: string; viaMcp?: boolean }
+  /**
+   * One read of one file's annotations, applied whole.
+   *
+   * A whole file rather than one annotation, because the interesting half of
+   * this operation is what is NOT in the list: an annotation the author has
+   * removed can only be recognised by reading everything that is there and
+   * noticing what is missing. An op per annotation could add and update and
+   * could never mark anything gone.
+   *
+   * `by` is the byline the derived notes carry. `viaMcp` is not offered: a note
+   * lifted out of a file did not come through either door, and saying it came
+   * through the agent's one because an agent happened to trigger the read would
+   * be exactly the false claim `viaMcp` exists to prevent.
+   */
+  | {
+      op: 'ingest'
+      project: string | null
+      projectPath: string | null
+      path: string
+      by: string
+      found: {
+        key: string
+        kind: 'todo' | 'comment'
+        body: string
+        from: number
+        to: number
+        quoted: string
+      }[]
+    }
 
 export type Outcome = { ok: true; said: string; id: string } | { ok: false; error: string }
 
@@ -150,6 +179,12 @@ export function change(op: Op): Outcome {
   if (trouble) return { ok: false, error: trouble }
 
   const by = str(op.by, MAX_BY) || 'somebody'
+
+  /* Handled before `viaMcp` is read, because an ingestion has no door — see the
+     comment on the op. Reading a field that is not on the variant would be a
+     type error, which is the check doing its job. */
+  if (op.op === 'ingest') return ingest(store, op, by)
+
   const viaMcp = op.viaMcp === true
 
   if (op.op === 'add') {
@@ -325,4 +360,157 @@ export function notesOf(project: { project?: string | null; projectPath?: string
 export function howMany(): { total: number; trouble: string | null } {
   const { store, trouble } = read()
   return { total: store.notes.length, trouble }
+}
+
+/**
+ * One file's annotations, reconciled against what is already stored.
+ *
+ * ## Idempotency is the whole problem, and the key is the whole answer
+ *
+ * The program this module descends from solved this and left the reasoning in
+ * its schema, against a `source_key TEXT UNIQUE` column: "stable across edits
+ * (it hashes the note's text, not its offset) so re-opening a chapter
+ * re-anchors them instead of duplicating." That is exactly right and it is what
+ * happens here. The key is derived from the annotation's WORDS, so reading a
+ * chapter twice produces one note; a `\todo{}` that has moved down the file
+ * because a paragraph was added above it is recognised as the note it already
+ * was, and its offsets are corrected rather than a second note appearing beside
+ * it.
+ *
+ * It is the same instinct as `anchor.ts`, one step earlier: that file compares
+ * the quoted words against the file to decide whether an anchor has rotted;
+ * this one compares the words against the store to decide whether a note
+ * already exists.
+ *
+ * ## Three things this refuses to do, each of them the obvious shortcut
+ *
+ * **It never deletes.** An annotation that is no longer in the file is marked
+ * `present: false` and left where it is, with its replies and its resolution.
+ * A note that disappeared because somebody edited a file is the failure this
+ * module's whole design refuses, and it is worse here than anywhere: the most
+ * likely reason a `\todo{}` left the source is that the author DID it, and the
+ * conversation about how is precisely what somebody will want next month.
+ *
+ * **It never overwrites what a person wrote.** A derived note's `body` is
+ * written once, when the note is created, and never again. Replies, resolution
+ * and re-anchoring are the person's and are untouched. Ingestion may only
+ * correct the two things it is the authority on — where the annotation now sits
+ * in the file, and whether it is still there.
+ *
+ * **It never un-resolves.** Somebody marking a derived note dealt with is a
+ * judgement about the note, not a report about the file, and re-reading the
+ * file has nothing to say about it. A `\todo{}` still in the source is not
+ * evidence that the person was wrong.
+ *
+ * ## So what happens when the author EDITS an annotation?
+ *
+ * It forks, and that is a decision rather than a consequence. Changed words are
+ * a changed key, so the new wording arrives as a new note and the old one is
+ * marked no longer present — carrying the replies that were about the words it
+ * actually said.
+ *
+ * The alternative — recognising it as the same note and replacing its body —
+ * was rejected because of what it does to a thread. Somebody answers
+ * `\todo{cite Lamport here}` with "no, this is Fischer"; the author rewrites
+ * the macro to say something else; and the reply is now attached to a note it
+ * does not answer, silently, with nothing anywhere recording what it used to
+ * say. A fork loses nothing and admits what happened. The cost is honest and
+ * small: a heavily reworded annotation appears twice, once marked gone, which
+ * is a true account of the file's history rather than a tidy one.
+ */
+function ingest(store: Store, op: Extract<Op, { op: 'ingest' }>, by: string): Outcome {
+  const path = str(op.path, MAX_PATH)
+  if (!path) return { ok: false, error: 'An ingestion has to name the file it read. Nothing was stored.' }
+
+  const key = projectKey(op)
+  const mine = store.notes.filter((one) => projectKey(one) === key && one.path === path && one.source)
+  const byKey = new Map(mine.map((one) => [one.source!.key, one]))
+  const stamp = now()
+
+  let added = 0
+  let moved = 0
+  let revived = 0
+  const seen = new Set<string>()
+
+  for (const found of op.found) {
+    const sourceKey = str(found.key, MAX_PATH)
+    const body = str(found.body, MAX_BODY)
+    const quoted = str(found.quoted, MAX_QUOTE)
+    /* An annotation with no words is not an annotation, and one whose source
+       slice will not fit the quote bound cannot be re-anchored later — see the
+       essay on `MAX_QUOTE`. Both are skipped rather than stored half-formed. */
+    if (!sourceKey || !body || !quoted) continue
+    seen.add(sourceKey)
+
+    const already = byKey.get(sourceKey)
+    if (already) {
+      /* Only the two things ingestion is the authority on. The body, the
+         replies, the resolution and the byline are somebody else's. */
+      if (already.from !== found.from || already.to !== found.to || already.quoted !== quoted) moved++
+      /* An annotation that had gone and has come back — the author reverted an
+         edit, or restored a file from a copy. Counted, because the decision to
+         write is made from these counters and a revival that changed nothing
+         else would otherwise be computed and then dropped on the floor: the
+         note would stay marked GONE FROM SOURCE while sitting in the file, for
+         as long as nothing else about it changed. Found by a test rather than
+         by reading, which is the usual way with a condition that is the
+         conjunction of two rare things. */
+      if (already.source && !already.source.present) revived++
+      already.from = found.from
+      already.to = found.to
+      already.quoted = quoted
+      already.fingerprint = fingerprint(quoted)
+      already.source = { key: sourceKey, kind: found.kind, present: true, seenAt: stamp, goneAt: null }
+      continue
+    }
+
+    store.notes.push({
+      id: mint('n'),
+      project: str(op.project, 120) || null,
+      projectPath: str(op.projectPath, MAX_PATH) || null,
+      path,
+      /* No page. A page is a property of a READER — how one module chose to
+         paginate a document — and this read the file. Inventing one would put a
+         filter on a note that the file never said anything about, and `null` is
+         already how a note about the whole document is spelled. */
+      page: null,
+      from: found.from,
+      to: found.to,
+      quoted,
+      fingerprint: fingerprint(quoted),
+      body,
+      by,
+      /* Not through the MCP door, whoever asked for the read. See `Op`. */
+      viaMcp: false,
+      at: stamp,
+      resolved: false,
+      resolvedAt: null,
+      resolvedBy: null,
+      replies: [],
+      source: { key: sourceKey, kind: found.kind, present: true, seenAt: stamp, goneAt: null },
+    })
+    added++
+  }
+
+  let gone = 0
+  for (const note of mine) {
+    const source = note.source
+    if (!source || seen.has(source.key)) continue
+    /* Marked once. A note already known to be gone keeps the date it went,
+       because "when did this stop being in the file" is the useful fact and
+       re-stamping it on every read would turn it into "when was this file last
+       read", which is already `seenAt` on everything else. */
+    if (!source.present) continue
+    note.source = { ...source, present: false, goneAt: stamp }
+    gone++
+  }
+
+  if (added || gone || moved || revived) write(store)
+  return {
+    ok: true,
+    said:
+      `Read ${op.found.length} in ${path}: ${added} new, ${moved} re-anchored, ${gone} no longer in the source`
+      + `${revived ? `, ${revived} back in it` : ''}.`,
+    id: '',
+  }
 }

@@ -137,9 +137,10 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     + 'did not read is a note you are about to overwrite the reason for. Answer with `reply_to_note` and close with '
     + '`resolve_note` when you have actually done the thing, naming what you changed. Write your own with `add_note`, '
     + 'always quoting the exact passage — offsets rot the moment anything above them is edited, and the quote is the '
-    + 'only thing that later tells a live anchor from one pointing at the wrong sentence. A note marked ADRIFT means '
-    + 'its passage is gone: read it, since somebody thought that text was worth remarking on, and either re-anchor it '
-    + 'with `reanchor_note` or resolve it saying why. Never assume a note is stale because it is old.',
+    + 'only thing that later tells a live anchor from one pointing at the wrong sentence. ADRIFT means the passage is '
+    + 'gone: re-anchor it with `reanchor_note` or resolve it saying why. Notes marked as from the source are the '
+    + 'author’s own \\todo{} and % annotations, lifted out of the .tex; after editing one call `read_source_notes` '
+    + 'on that file. Never assume a note is stale because it is old.',
   entry: '/app',
   modes: [{ id: 'notes', label: 'Notes', scope: 'epic' }],
   mcp: {

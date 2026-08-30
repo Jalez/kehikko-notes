@@ -101,6 +101,59 @@ export interface Reply {
  * reads a pile of assertions and believes all of them equally. So the record
  * says which door it came through, on the row, always.
  */
+/**
+ * Where a note came from, when it was not typed by anybody.
+ *
+ * ## Why a note has to say this about itself
+ *
+ * The row already says which DOOR a note came through — `viaMcp` — for a reason
+ * spelled out above: "a person's note and an agent's note about the same
+ * sentence on this machine are different claims, and a reader who cannot tell
+ * them apart reads a pile of assertions and believes all of them equally."
+ *
+ * A note lifted out of a `\todo{}` in the author's own `.tex` is a third kind
+ * of claim and the same rule applies twice over. Nobody wrote it HERE. It was
+ * not a thought somebody had about a passage while reading; it is a thing the
+ * author wrote inside the document, that this program went and fetched. A
+ * reader must be able to tell "I wrote this in the pane" from "the author wrote
+ * this in the source", and so must an agent over MCP, because the two want
+ * different things done about them: one is a conversation, the other is a task
+ * list somebody keeps in their own file and will edit there.
+ */
+export interface Source {
+  /**
+   * The stable identity of this annotation, derived from its TEXT.
+   *
+   * Never from its offset. The whole problem of lifting notes out of a document
+   * is that the document is edited underneath them: a key made of a byte
+   * position produces a second note every time anybody adds a paragraph above
+   * it, and a chapter re-read twice becomes a chapter with two of everything.
+   * Hashing the words means a note that has MOVED is recognised as the note it
+   * already was, and only a note whose words CHANGED is a new one — which is
+   * the right reading, and see `sourceEdit` below for what happens then.
+   *
+   * The path is part of it, so the same sentence in two chapters is two notes.
+   */
+  key: string
+  /** Which construct it came out of: a todonotes macro, or a run of `%` lines. */
+  kind: 'todo' | 'comment'
+  /**
+   * Whether the last read of the file still found it.
+   *
+   * False does not mean deleted, and nothing here ever deletes. An annotation
+   * that has gone from the source is a note whose subject somebody removed —
+   * possibly by DOING it — and the conversation on it, and the fact that it
+   * once existed, are exactly the record this module refuses to lose. A note
+   * that quietly disappeared because somebody edited a file is the failure the
+   * whole anchoring design is arranged against.
+   */
+  present: boolean
+  /** When the file was last read and this annotation was found in it. */
+  seenAt: string
+  /** When the file was last read and it was NOT, or null while it still is. */
+  goneAt: string | null
+}
+
 export interface Note {
   id: string
   /** What the project is called, as the host said it. Null when no host had said. */
@@ -130,6 +183,21 @@ export interface Note {
   resolvedAt: string | null
   resolvedBy: string | null
   replies: Reply[]
+  /**
+   * Where this came from, or null for a note somebody typed.
+   *
+   * Optional on the way IN because the store is a JSON file with no migrations:
+   * every note written before this field existed is a note somebody typed, and
+   * `null` is the true answer for all of them. Read it through `sourceOf`
+   * rather than directly, so that "absent" and "explicitly null" cannot come
+   * out as two different things anywhere.
+   */
+  source?: Source | null
+}
+
+/** A note's provenance, with an old record's silence read as "a person typed it". */
+export function sourceOf(note: Pick<Note, 'source'>): Source | null {
+  return note.source ?? null
 }
 
 /** Everything the store holds, as it sits on disk. */

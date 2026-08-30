@@ -1,8 +1,9 @@
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import { resolveAll, type Anchored } from './notes/anchor.ts'
 import { change, count, howMany, notesOf, str, type Op } from './notes/keep.ts'
-import { narrow, saidOf, scopeOf, type Narrowed, type Scope } from './notes/scope.ts'
-import { MAX_BODY, MAX_BY, MAX_ID, MAX_PATH, MAX_QUOTE } from './notes/shape.ts'
+import { narrow, pathOf, saidOf, scopeOf, type Narrowed, type Scope } from './notes/scope.ts'
+import { MAX_BODY, MAX_BY, MAX_ID, MAX_PATH, MAX_QUOTE, sourceOf } from './notes/shape.ts'
+import { forgetReads, ingestSource } from './notes/ingest.ts'
 import { readerFor } from './notes/source.ts'
 
 /**
@@ -60,6 +61,18 @@ const OWNER = 'the owner, on this app’s own page'
 
 /** What an agent is called when it does not say. */
 const AGENT = process.env.NOTES_AGENT ?? process.env.ROADMAP_AGENT ?? 'an agent'
+
+/**
+ * The byline on a note this app lifted out of a document.
+ *
+ * Not a person and not an agent, and it says so in words rather than leaving a
+ * reader to work it out from a badge. Whoever wrote the `\todo{}` wrote it in
+ * their own file; nobody typed it here, and a derived note filed under "the
+ * owner" or under an agent's name would be this app claiming somebody said
+ * something in a place they did not say it. The same rule `viaMcp` exists for:
+ * a reader who cannot tell two kinds of claim apart believes both equally.
+ */
+const AUTHOR = 'the author, in the source'
 
 /* ------------------------------------------------------------------ *
  * Reading: a project, a scope, and the anchors resolved against disk
@@ -183,9 +196,33 @@ export interface Looked {
  * gone before anything decides whether to show it.
  */
 export function look(asked: Asked, includeResolved: boolean): Looked {
+  /**
+   * The author's own annotations, read out of the document first.
+   *
+   * Before the notes are fetched rather than after, so that a `\todo{}` added
+   * to a chapter this morning is in the list somebody is about to be shown
+   * instead of appearing on the read after next.
+   *
+   * Only when the scope names a FILE. Asking for everything in a project reads
+   * no files at all, so no amount of browsing scans a tree, and a repeat read
+   * of an unchanged file does nothing — see `ingestSource`, which holds what it
+   * has already seen. The reader is the same confined one used to verify
+   * anchors, so a path outside every root is silence here exactly as it is
+   * there.
+   *
+   * The whole argument for a write happening on a read is in `notes/ingest.ts`.
+   * The short version: the alternative is a person pressing a button to be
+   * shown information the program already has, and a press that would never
+   * mean no.
+   */
+  const path = pathOf(asked.scope)
+  const read = readerFor(asked.projectPath)
+  if (path) {
+    ingestSource({ project: asked.project, projectPath: asked.projectPath, path }, read, AUTHOR)
+  }
+
   const { notes, trouble } = notesOf({ project: asked.project, projectPath: asked.projectPath })
   const wanted = includeResolved ? notes : notes.filter((one) => !one.resolved)
-  const read = readerFor(asked.projectPath)
   const anchored = resolveAll(wanted, read)
   const verified = anchored.some((one) => one.anchor.state === 'exact' || one.anchor.state === 'moved' || one.anchor.state === 'adrift')
   return { narrowed: narrow(anchored, asked.scope), said: saidOf(asked.scope), trouble, verified }
@@ -307,6 +344,25 @@ function tools() {
         required: ['note', 'from', 'to', 'quoted'],
       },
     },
+    {
+      name: 'read_source_notes',
+      description:
+        'Read one document again and lift the author’s own annotations out of it — every \\todo{}, \\missing{}, '
+        + '\\alt{}, \\thought{} and \\attention{} macro, and every run of % comment lines — into notes anchored '
+        + 'where they sit in the file. Safe to call repeatedly: an annotation is identified by a hash of its WORDS, '
+        + 'so reading a chapter twice produces one note and not two. Nothing is ever deleted — an annotation you have '
+        + 'removed from the file is marked as no longer in the source and kept, with whatever was said about it. Call '
+        + 'this after editing a .tex if you want the pane to catch up immediately; it happens on its own whenever '
+        + 'somebody looks at notes for a document.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...PROJECT_PROPERTIES,
+          path: { type: 'string', description: 'Absolute path of the .tex file to read' },
+        },
+        required: ['path'],
+      },
+    },
   ]
 }
 
@@ -330,8 +386,21 @@ function noteText(one: Anchored): string {
         ? note.path
         : `${note.path}, page ${note.page}`
       : `${note.path} bytes ${anchor.from}–${anchor.to}`
+  /* Where a note came FROM, on the line an agent reads first.
+     A `\todo{}` the author left in their own .tex and a thought somebody typed
+     into the pane are different claims — one is a task list the author keeps in
+     a file they will edit, the other is a conversation — and an agent that
+     cannot tell them apart will answer both the same way. `[GONE FROM SOURCE]`
+     is the other half: the annotation has left the file, the note has not, and
+     an agent should read it as history rather than as work outstanding. */
+  const source = sourceOf(note)
+  const provenance = source
+    ? source.present
+      ? ` [from the ${source.kind === 'todo' ? 'source macro' : 'source comment'}]`
+      : ' [GONE FROM SOURCE]'
+    : ''
   const lines = [
-    `${note.id}${MARKS[anchor.state] ?? ''} — ${where}`,
+    `${note.id}${MARKS[anchor.state] ?? ''}${provenance} — ${where}`,
     `  by ${note.by}${note.viaMcp ? ', over MCP' : ''} at ${note.at}${note.resolved ? `, resolved by ${note.resolvedBy}` : ''}`,
     note.quoted ? `  quoting: “${note.quoted.slice(0, 300)}${note.quoted.length > 300 ? '…' : ''}”` : '',
     `  anchor: ${anchor.said}`,
@@ -425,6 +494,29 @@ function call(name: string, args: Record<string, unknown>): string {
     return `${out.said}, as ${out.id}.\n\n${lookText(look(ask, false))}`
   }
 
+  if (name === 'read_source_notes') {
+    const path = str(args.path, MAX_PATH)
+    if (!path) throw new Error('read_source_notes needs the absolute path of the document to read.')
+    const project = str(args.project, 120) || null
+    const projectPath = str(args.projectPath, MAX_PATH) || null
+    /* `force`, because a tool call means "again, now". The guard that skips an
+       unchanged file is there so that a person scrolling does not cause work;
+       an agent that has just edited the file and is asking explicitly has told
+       this app more than the file's length can. */
+    forgetReads()
+    const done = ingestSource({ project, projectPath, path }, readerFor(projectPath), AUTHOR, true)
+    if (done.said === null) {
+      throw new Error(
+        `This app could not open ${path}. It reads only inside the roots it was started with — NOTES_ROOTS, or the `
+        + 'project path the host named — so a document outside them is not refused, it is invisible. Nothing was '
+        + 'changed.',
+      )
+    }
+    const ask = asked({ project, projectPath, path })
+    if (typeof ask === 'string') throw new Error(ask)
+    return `${done.said}\n\n${lookText(look(ask, false))}`
+  }
+
   const id = str(args.note, MAX_ID)
   if (!id) {
     throw new Error(
@@ -475,7 +567,7 @@ interface Rpc {
   params?: { name?: string; arguments?: Record<string, unknown> }
 }
 
-const TOOL_NAMES = ['notes', 'add_note', 'reply_to_note', 'resolve_note', 'reanchor_note']
+const TOOL_NAMES = ['notes', 'add_note', 'reply_to_note', 'resolve_note', 'reanchor_note', 'read_source_notes']
 
 function mcp(rpc: Rpc): Reply {
   const reply = (result: unknown) => ok({ jsonrpc: '2.0', id: rpc.id ?? null, result })

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import type { Anchored } from '@/store/ask.ts'
+import { sourceOf } from '../../notes/shape.ts'
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 
@@ -48,6 +49,10 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
   const [replying, setReplying] = useState(false)
   const [draft, setDraft] = useState('')
   const verdict = VERDICT[anchor.state] ?? VERDICT.unverified
+  /* Read through `sourceOf` rather than off the record, so that a note written
+     before this field existed — where it is absent rather than null — is read
+     as what it is: something a person typed. */
+  const source = sourceOf(note)
   const where =
     anchor.from === null
       ? note.page === null
@@ -66,6 +71,25 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
         <Badge variant={verdict?.variant}>{verdict?.word}</Badge>
         {note.resolved ? <Badge variant="outline">resolved</Badge> : null}
         {note.viaMcp ? <Badge variant="outline">over MCP</Badge> : null}
+        {/*
+          Where the note came from, when nobody typed it here.
+          A `\todo{}` the author left in their own `.tex` and a thought
+          somebody had while reading are different claims about the same
+          sentence, and this row already makes that argument once for the MCP
+          door. It has to be made again here, and more loudly: a derived note is
+          the only kind whose words are also somewhere else, being edited by
+          somebody who has never seen this pane.
+          "in the source" and "gone from source" are FIXED words chosen by this
+          file — never the path, never the annotation, never the author. A badge
+          carries `whitespace-nowrap`, and a variable string inside one is how a
+          220px pane acquires a 1187px min-content floor. The path is below, in
+          a `<p>` that wraps.
+        */}
+        {source ? (
+          <Badge variant="outline" data-source={source.kind}>
+            {source.present ? 'in the source' : 'gone from source'}
+          </Badge>
+        ) : null}
       </div>
 
       {/* The path and the range: somebody else's string, so it wraps rather than

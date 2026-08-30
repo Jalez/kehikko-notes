@@ -126,14 +126,87 @@ describe('nothing long is ever put in a badge', () => {
   })
 
   test('every badge on a row is a word this file chose and not a string from a note', () => {
-    render(<NoteRow one={anchored('moved', { by: 'a name of considerable length indeed' })} actions={actions} />)
+    render(
+      <NoteRow
+        one={anchored('moved', {
+          by: 'a name of considerable length indeed',
+          /* A derived note as well, because its badge is the newest one and the
+             one most tempting to fill with the annotation's own words. */
+          source: {
+            key: '/x/chapters/bridge.tex#todo:0badc0de',
+            kind: 'todo',
+            present: true,
+            seenAt: '2026-01-01T00:00:00.000Z',
+            goneAt: null,
+          },
+        })}
+        actions={actions}
+      />,
+    )
     const badges = Array.from(document.querySelectorAll('[data-slot="badge"]'))
     expect(badges.length).toBeGreaterThan(0)
     for (const badge of badges) {
-      expect(['anchored', 'moved', 'adrift', 'unchecked', 'whole page', 'resolved', 'over MCP']).toContain(
-        badge.textContent,
-      )
+      expect([
+        'anchored',
+        'moved',
+        'adrift',
+        'unchecked',
+        'whole page',
+        'resolved',
+        'over MCP',
+        'in the source',
+        'gone from source',
+      ]).toContain(badge.textContent)
     }
+  })
+})
+
+describe('a note lifted out of the .tex is not mistaken for one somebody typed', () => {
+  const fromSource = (present: boolean) =>
+    anchored('exact', {
+      by: 'the author, in the source',
+      source: {
+        key: '/x/chapters/bridge.tex#todo:0badc0de',
+        kind: 'todo',
+        present,
+        seenAt: '2026-01-01T00:00:00.000Z',
+        goneAt: present ? null : '2026-02-01T00:00:00.000Z',
+      },
+    })
+
+  test('it says so on the row, and says who wrote it and where', () => {
+    /* Two claims about one sentence — the author's `\todo{}` and somebody's
+       thought in the pane — read identically unless the row says which is
+       which, and a reader who cannot tell them apart believes both equally.
+       That is the same argument `viaMcp` was added for. */
+    render(<NoteRow one={fromSource(true)} actions={actions} />)
+    expect(screen.getByText('in the source')).toBeDefined()
+    expect(screen.getByText(/the author, in the source/)).toBeDefined()
+  })
+
+  test('an annotation the author removed says so and is still on the page', () => {
+    /* Never deleted. The likeliest reason a `\todo{}` left a file is that
+       somebody DID it, and the note is then the record of why the file
+       changed. */
+    render(<NoteRow one={fromSource(false)} actions={actions} />)
+    expect(screen.getByText('gone from source')).toBeDefined()
+    expect(screen.getByText('is this still true after the rewrite?')).toBeDefined()
+  })
+
+  test('a note nobody derived carries no provenance badge at all', () => {
+    render(<NoteRow one={anchored('exact')} actions={actions} />)
+    expect(screen.queryByText('in the source')).toBeNull()
+    expect(screen.queryByText('gone from source')).toBeNull()
+  })
+
+  test('a note written before the field existed reads as one somebody typed', () => {
+    /* The store is a JSON file with no migrations, so an old record simply has
+       no `source` key. Absent and explicitly null must not come out as two
+       different things. */
+    const one = anchored('exact')
+    delete (one.note as { source?: unknown }).source
+    render(<NoteRow one={one} actions={actions} />)
+    expect(screen.queryByText('in the source')).toBeNull()
   })
 })
 

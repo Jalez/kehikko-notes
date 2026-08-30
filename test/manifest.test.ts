@@ -58,7 +58,7 @@ describe('what it tells an agent it obliges', () => {
 
   test('it names the tools by the names the door actually answers to', () => {
     const said = MANIFEST.guidance ?? ''
-    for (const tool of ['notes', 'add_note', 'reply_to_note', 'resolve_note', 'reanchor_note']) {
+    for (const tool of ['notes', 'add_note', 'reply_to_note', 'resolve_note', 'reanchor_note', 'read_source_notes']) {
       expect(said).toContain(tool)
     }
   })
