@@ -1,0 +1,176 @@
+@import 'tailwindcss';
+
+/**
+ * The palette, in shadcn's own token names, and two rules about the LAYOUT that
+ * matter more here than the colours do.
+ *
+ * ## Container queries, not viewport breakpoints
+ *
+ * This page's normal case is a pane 220 to 400 pixels wide inside somebody's
+ * canvas, on a monitor two thousand pixels across. Every viewport breakpoint
+ * Tailwind ships would therefore fire — `lg:` is true, `xl:` is true — and the
+ * page would lay itself out for a screen it has three per cent of. So the
+ * `<body>` is a container, every responsive class in this app is a `@container`
+ * class, and the only thing any of them ever measures is the pane.
+ *
+ * ## Nothing overflows sideways, ever
+ *
+ * A pane that scrolls horizontally is a pane where half a sentence is behind an
+ * edge nobody thinks to drag. `overflow-x: hidden` on the body would HIDE that
+ * rather than fix it, so it is not here: what is here is `overflow-wrap` on the
+ * prose and `min-width: 0` on the flex children, which are the two things that
+ * actually stop a long path or an unbroken quote pushing the layout wider than
+ * the frame.
+ *
+ * This module has a worse version of that problem than its siblings, and it is
+ * worth naming because it has already caught one of them. A QUOTED PASSAGE is
+ * exactly the long unbroken string that sets a min-content floor under a narrow
+ * pane — a 1187px floor under a 220px pane, measured, elsewhere in this
+ * workspace. Every place a quote or a document path is drawn therefore breaks
+ * anywhere, and no quote is ever put inside anything with `whitespace-nowrap`
+ * on it. shadcn's `Badge` has exactly that in its base class, so the badge here
+ * carries short verdict words and never a quote. A test at 220px asserts the
+ * result rather than the technique.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --radius: 0.5rem;
+
+  /**
+   * The five anchor verdicts, each with a colour of its own.
+   *
+   * Five and not two, and the distinctions are the point of this module rather
+   * than decoration. `unchecked` is not `exact` — one is a program that could
+   * not look and one is a program that looked and found the words — and `moved`
+   * is not `adrift`, because in one case the passage is still in the file and in
+   * the other it is gone, and those need different things done about them.
+   * Colour is the fastest channel a reader has, so the distinctions live in it
+   * as well as in the words; the words are never dropped, because colour alone
+   * is a claim a person with any kind of colour blindness cannot read.
+   */
+  --exact: oklch(0.63 0.15 150);
+  --moved: oklch(0.72 0.16 75);
+  --adrift: oklch(0.6 0.2 25);
+  --unchecked: oklch(0.62 0.02 260);
+  --unranged: oklch(0.66 0.13 300);
+}
+
+/*
+ * Dark, twice.
+ *
+ * `.dark` is set by the wire when a host says so, and the media query is what
+ * answers before any host has spoken — a page opened directly, or a frame in its
+ * first hundred milliseconds. `.light` is the escape hatch that makes a host's
+ * explicit "light" beat a machine set to dark, which is why the media query is
+ * guarded on its absence rather than left to win.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.985 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+  }
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-exact: var(--exact);
+  --color-moved: var(--moved);
+  --color-adrift: var(--adrift);
+  --color-unchecked: var(--unchecked);
+  --color-unranged: var(--unranged);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body {
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  /*
+   * The container every responsive class in this app measures. Named, so a
+   * `@sm/pane:` class cannot accidentally attach itself to some nested container
+   * a component introduces later.
+   */
+  body {
+    container: pane / inline-size;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  /*
+   * Long, unbroken strings are the one thing that widens a pane past its frame:
+   * an absolute document path, a quoted passage with no spaces in it, a URL
+   * somebody wrote in their thesis. Breaking them is the honest fix — the whole
+   * string stays on screen, wrapped, rather than being clipped by an
+   * `overflow: hidden` that says nothing about what is missing.
+   */
+  p,
+  li,
+  summary,
+  code,
+  blockquote {
+    overflow-wrap: anywhere;
+  }
+}

@@ -1,0 +1,640 @@
+import { ID, MANIFEST, VERSION } from './manifest.ts'
+import { resolveAll, type Anchored } from './notes/anchor.ts'
+import { change, count, howMany, notesOf, str, type Op } from './notes/keep.ts'
+import { narrow, saidOf, scopeOf, type Narrowed, type Scope } from './notes/scope.ts'
+import { MAX_BODY, MAX_BY, MAX_ID, MAX_PATH, MAX_QUOTE } from './notes/shape.ts'
+import { readerFor } from './notes/source.ts'
+
+/**
+ * Every door this app answers on that is not the page itself.
+ *
+ * ## Why this is a file of functions rather than a server
+ *
+ * A module is ONE ORIGIN or it is nothing. The protocol refuses a manifest
+ * whose `entry` points anywhere but the origin that served the manifest, and it
+ * is right to — a program that could name somebody else's page would be a
+ * program that could have the host frame somebody else. The page is served by
+ * Vite, because a `dist/` served off disk has cost this codebase whole
+ * afternoons of a stale page answering 200 with every symptom of a working app
+ * and none of the changes. So the manifest, the health check, the MCP door and
+ * this app's own store have to be Vite's too — they cannot be a second process
+ * on a second port however much tidier that would look.
+ *
+ * Hence: no listener here. `answer()` takes a method, a path, a query and a
+ * body and returns a status and a document, and `vite.config.ts` adapts a node
+ * request to it in a dozen lines.
+ *
+ * ## Nothing here trusts its caller
+ *
+ * The page is one caller, an agent over MCP is another, and a third is whatever
+ * else on this machine found the port — this listens on loopback, which is a
+ * fence around the machine and not around the programs on it. Every string is
+ * bounded before it is looked at and every number is refused rather than
+ * defaulted. The rules about what a note may BE live one layer down in
+ * `notes/keep.ts`, so the page and this door cannot tell somebody two different
+ * things about the same press.
+ */
+
+/**
+ * The ticket a write has to carry.
+ *
+ * Minted once per process and printed into the page this server serves. It dies
+ * with this process, because a secret that outlives the thing that issued it is
+ * one nobody can revoke by restarting.
+ *
+ * What it separates is "this app's own page pressed something" from "something
+ * else on this machine guessed the port and posted". This module declares
+ * `storage: true` and sets no `server.cors`, which is what makes the separation
+ * real rather than decorative: the page has an origin of its own, its fetches
+ * are same-origin, no CORS header is offered to anybody, and `/app` — and
+ * therefore this string — is unreadable from another origin.
+ *
+ * Reads are not gated on it. A note is not a secret from anything that could
+ * already open the page, and gating reads would only mean an agent's curl needs
+ * a ticket to look at what `/mcp` hands over anyway.
+ */
+export const TICKET = crypto.randomUUID()
+
+/** The word a note is filed under when the page wrote it. */
+const OWNER = 'the owner, on this app’s own page'
+
+/** What an agent is called when it does not say. */
+const AGENT = process.env.NOTES_AGENT ?? process.env.ROADMAP_AGENT ?? 'an agent'
+
+/* ------------------------------------------------------------------ *
+ * Reading: a project, a scope, and the anchors resolved against disk
+ * ------------------------------------------------------------------ */
+
+/**
+ * How a caller says which project it means, written once because three tools
+ * would otherwise say it three slightly different ways.
+ *
+ * Both fields, because the store partitions on both — the path where there is
+ * one, the name otherwise. A caller that sends neither is asking about the pile
+ * of notes nobody ever said a project about, which is a real question and not
+ * an error; see `projectKey`.
+ */
+const PROJECT_PROPERTIES = {
+  project: {
+    type: 'string',
+    description: 'What the project is called, as the roadmap names it. Used only when no path is given.',
+  },
+  projectPath: {
+    type: 'string',
+    description:
+      'The absolute directory the project lives in. This is what notes are actually partitioned by, so send it '
+      + 'whenever you have it — two projects with a chapters/intro.tex are otherwise one pile.',
+  },
+} as const
+
+const PLACE_PROPERTIES = {
+  path: {
+    type: 'string',
+    description:
+      'The document, as an absolute path. Notes are anchored to a file and this is the file. Omit it, with '
+      + 'everything: true, to see the whole project.',
+  },
+  page: {
+    type: 'integer',
+    description:
+      'Which page of it, counting from 1. A filter and not an anchor: page numbers move when anything above them '
+      + 'is edited, so this narrows a list and never decides what a note is about.',
+  },
+  from: {
+    type: 'integer',
+    description: 'First byte of the passage within the document. Give both ends or neither.',
+  },
+  to: { type: 'integer', description: 'One past the last byte of the passage. Give both ends or neither.' },
+} as const
+
+interface Asked {
+  project: string | null
+  projectPath: string | null
+  scope: Scope
+  everything: boolean
+}
+
+/**
+ * What a caller asked to see, or a sentence saying why that was not a question.
+ *
+ * The scope comes from the same `scopeOf` the page uses over the same four
+ * fields, so an agent asking "what is on page 7" and a reader looking at page 7
+ * are answered from one definition of what that means.
+ */
+function asked(args: Record<string, unknown>): Asked | string {
+  const project = str(args.project, 120) || null
+  const projectPath = str(args.projectPath, MAX_PATH) || null
+  const everything = args.everything === true || args.everything === 'true'
+  const path = str(args.path, MAX_PATH)
+
+  if (everything || !path) {
+    if (!everything) {
+      return (
+        'That did not say which document. Notes are anchored to a file, so a request without one has no scope — '
+        + 'give path, or everything: true to see the whole project at once.'
+      )
+    }
+    return { project, projectPath, scope: { kind: 'everything' }, everything: true }
+  }
+
+  const page = args.page === undefined || args.page === null || args.page === '' ? null : count(args.page)
+  if (args.page !== undefined && args.page !== null && args.page !== '' && (page === null || page < 1)) {
+    return 'A page is a whole number counting from 1, or is left out entirely. Nothing was read.'
+  }
+
+  const gaveFrom = args.from !== undefined && args.from !== null && args.from !== ''
+  const gaveTo = args.to !== undefined && args.to !== null && args.to !== ''
+  if (gaveFrom !== gaveTo) {
+    return (
+      'A passage names both ends or neither. Half a range is not a coarser question — it is one whose missing end '
+      + 'would have to be invented. Omit both to ask about the whole page.'
+    )
+  }
+  const from = gaveFrom ? count(args.from) : null
+  const to = gaveTo ? count(args.to) : null
+  if (gaveFrom && (from === null || to === null)) return 'A passage is named in whole numbers of bytes. Nothing was read.'
+  if (from !== null && from < 0) return 'A passage starts at or after byte 0. Nothing was read.'
+  if (from !== null && to !== null && to <= from) return 'A passage ends after it starts. Nothing was read.'
+
+  return {
+    project,
+    projectPath,
+    scope: scopeOf({ path, page, from, to, quoted: '' }),
+    everything: false,
+  }
+}
+
+export interface Looked {
+  narrowed: Narrowed
+  said: string
+  trouble: string | null
+  /** Whether this app was able to open any document at all. See `notes/source.ts`. */
+  verified: boolean
+}
+
+/**
+ * One screen's worth of notes: partitioned by project, resolved against disk,
+ * narrowed to the scope.
+ *
+ * The three steps are in this order for a reason. Partitioning first means no
+ * other project's document is ever opened. Resolving before narrowing means the
+ * range test runs against where a note points NOW, so an edit above the reader
+ * does not empty the pane — and means a note whose anchor is gone is known to be
+ * gone before anything decides whether to show it.
+ */
+export function look(asked: Asked, includeResolved: boolean): Looked {
+  const { notes, trouble } = notesOf({ project: asked.project, projectPath: asked.projectPath })
+  const wanted = includeResolved ? notes : notes.filter((one) => !one.resolved)
+  const read = readerFor(asked.projectPath)
+  const anchored = resolveAll(wanted, read)
+  const verified = anchored.some((one) => one.anchor.state === 'exact' || one.anchor.state === 'moved' || one.anchor.state === 'adrift')
+  return { narrowed: narrow(anchored, asked.scope), said: saidOf(asked.scope), trouble, verified }
+}
+
+/* ------------------------------------------------------------------ *
+ * The agent's door
+ * ------------------------------------------------------------------ */
+
+/**
+ * The five tools, which are the whole of what an agent can do here.
+ *
+ * Streamable HTTP, one request one answer — no sessions and no stream, because
+ * nothing here pushes.
+ *
+ * ## What is NOT here
+ *
+ * There is no `forget_note`. Deleting a note removes the reason a sentence was
+ * changed along with the note, and it is the one irreversible act this app
+ * could offer. `resolve_note` is what "this is dealt with" means, it is
+ * reversible, and it keeps the record. An agent that wants a note gone can say
+ * so and be told no by somebody.
+ *
+ * There is no tool that returns the contents of a document either, and that is
+ * a boundary rather than an omission — see `notes/source.ts`. This app opens a
+ * file to check an anchor and answers with a verdict. A tool that answered
+ * "what is at bytes 400–460" would make this a file-reading service on loopback
+ * with a notes app bolted to it.
+ */
+function tools() {
+  return [
+    {
+      name: 'notes',
+      description:
+        'What has been written against a document, narrowed to where you are looking. Give path for the whole file, '
+        + 'add page for one page of it, or add from and to for one passage — the same ladder the pane uses, so you '
+        + 'and whoever is reading see the same list. Every note comes back with whether its anchor still points at '
+        + 'the words it was written about: MOVED means the offsets rotted and the words are still there, ADRIFT '
+        + 'means the passage is gone. Read this before editing a file; a note you did not read is a note you are '
+        + 'about to overwrite the reason for.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...PROJECT_PROPERTIES,
+          ...PLACE_PROPERTIES,
+          everything: { type: 'boolean', description: 'Every note in the project, ignoring path, page and range.' },
+          include_resolved: { type: 'boolean', description: 'Show notes somebody has already closed. Defaults to false.' },
+        },
+      },
+    },
+    {
+      name: 'add_note',
+      description:
+        'Write a note against a passage of a document. ALWAYS send quoted: the exact text of the passage as it '
+        + 'reads right now. Byte offsets rot the moment anybody edits above them and nothing in a pair of numbers '
+        + 'can notice; the quote is the only thing that later tells a live anchor from one silently pointing at the '
+        + 'wrong sentence. Omit from and to — and the quote with them — to write a note about a whole page.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...PROJECT_PROPERTIES,
+          ...PLACE_PROPERTIES,
+          quoted: { type: 'string', description: `The passage, verbatim. Required with from and to. Up to ${MAX_QUOTE} characters.` },
+          body: { type: 'string', description: `What you have to say about it. Up to ${MAX_BODY} characters.` },
+          agent: { type: 'string', description: 'Your own name, so the note says who wrote it' },
+        },
+        required: ['path', 'body'],
+      },
+    },
+    {
+      name: 'reply_to_note',
+      description:
+        'Answer one note. This is where you say what you did about it, or why you did not — a reply is addressed to '
+        + 'whoever wrote the note and is read by whoever edits next. It does not close anything; resolve_note does '
+        + 'that.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          note: { type: 'string', description: 'The note id, as the notes tool prints it' },
+          body: { type: 'string', description: `What you have to say. Up to ${MAX_BODY} characters.` },
+          agent: { type: 'string' },
+        },
+        required: ['note', 'body'],
+      },
+    },
+    {
+      name: 'resolve_note',
+      description:
+        'Mark one note dealt with, or reopen it with done: false. Resolve what you have actually done, and reply '
+        + 'first saying what that was — a note closed with no account of what happened is worse than one left open. '
+        + 'Nothing is deleted: a resolved note is one press from being read again, because the reason a sentence '
+        + 'changed outlives the change.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          note: { type: 'string', description: 'The note id' },
+          done: { type: 'boolean', description: 'Defaults to true' },
+          agent: { type: 'string' },
+        },
+        required: ['note'],
+      },
+    },
+    {
+      name: 'reanchor_note',
+      description:
+        'Move a note whose offsets have drifted onto where its passage actually is now, and say what is there in '
+        + 'its own words. Only for a note the notes tool reports as MOVED or ADRIFT. This app never does it on your '
+        + 'behalf: silently rewriting somebody’s record to match a file a program guessed about is the same class '
+        + 'of mistake as attaching their note to the wrong sentence, and unrecoverable rather than visible.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          note: { type: 'string', description: 'The note id' },
+          from: { type: 'integer', description: 'First byte of the passage now' },
+          to: { type: 'integer', description: 'One past the last byte of it now' },
+          quoted: { type: 'string', description: 'What is at that range now, verbatim' },
+          agent: { type: 'string' },
+        },
+        required: ['note', 'from', 'to', 'quoted'],
+      },
+    },
+  ]
+}
+
+/* ------------------------------------------------------------------ *
+ * The answers, in words
+ * ------------------------------------------------------------------ */
+
+const MARKS: Record<string, string> = {
+  exact: '',
+  moved: ' [MOVED]',
+  adrift: ' [ADRIFT]',
+  unverified: ' [UNCHECKED]',
+  unranged: ' [whole page]',
+}
+
+function noteText(one: Anchored): string {
+  const { note, anchor } = one
+  const where =
+    anchor.from === null
+      ? note.page === null
+        ? note.path
+        : `${note.path}, page ${note.page}`
+      : `${note.path} bytes ${anchor.from}–${anchor.to}`
+  const lines = [
+    `${note.id}${MARKS[anchor.state] ?? ''} — ${where}`,
+    `  by ${note.by}${note.viaMcp ? ', over MCP' : ''} at ${note.at}${note.resolved ? `, resolved by ${note.resolvedBy}` : ''}`,
+    note.quoted ? `  quoting: “${note.quoted.slice(0, 300)}${note.quoted.length > 300 ? '…' : ''}”` : '',
+    `  anchor: ${anchor.said}`,
+    `  ${note.body}`,
+  ].filter(Boolean)
+  for (const reply of note.replies) {
+    lines.push(`    ↳ ${reply.by}${reply.viaMcp ? ', over MCP' : ''}: ${reply.body}`)
+  }
+  return lines.join('\n')
+}
+
+function lookText(looked: Looked): string {
+  if (looked.trouble) return looked.trouble
+  const { narrowed } = looked
+  const head = [looked.said]
+  if (!narrowed.shown.length && !narrowed.adrift.length) {
+    head.push(
+      narrowed.elsewhere
+        ? `Nothing here. ${narrowed.elsewhere} note${narrowed.elsewhere === 1 ? '' : 's'} on this document `
+          + 'fall outside what you asked about — widen the range or drop it to see them.'
+        : 'Nothing has been written here yet. add_note writes the first.',
+    )
+    return head.join('\n')
+  }
+  if (narrowed.shown.length) {
+    head.push('', ...narrowed.shown.map(noteText))
+  }
+  if (narrowed.adrift.length) {
+    head.push(
+      '',
+      `${narrowed.adrift.length} note${narrowed.adrift.length === 1 ? '' : 's'} on this document cannot be placed in `
+      + `it, and ${narrowed.adrift.length === 1 ? 'is' : 'are'} shown at every scope rather than filtered away:`,
+      ...narrowed.adrift.map(noteText),
+    )
+  }
+  if (narrowed.elsewhere) {
+    head.push(
+      '',
+      `${narrowed.elsewhere} more note${narrowed.elsewhere === 1 ? ' is' : 's are'} on this document outside what you `
+      + 'asked about.',
+    )
+  }
+  if (!looked.verified) {
+    head.push(
+      '',
+      'This app could not open any of these documents, so no anchor above has been checked. It is showing the words '
+      + 'each note was written about, not the words that are there now. Set NOTES_ROOTS to a directory it may read.',
+    )
+  }
+  return head.join('\n')
+}
+
+/**
+ * Every write, bounded and then handed to the one function that decides.
+ *
+ * The bounds are here and the rules are in `notes/keep.ts`. The refusal sentence
+ * always comes from the store, so the page and this door cannot end up telling
+ * somebody two different things about the same press.
+ */
+function call(name: string, args: Record<string, unknown>): string {
+  const by = str(args.agent, MAX_BY) || AGENT
+
+  if (name === 'notes') {
+    const ask = asked(args)
+    if (typeof ask === 'string') throw new Error(ask)
+    return lookText(look(ask, args.include_resolved === true))
+  }
+
+  if (name === 'add_note') {
+    const ask = asked({ ...args, everything: false })
+    if (typeof ask === 'string') throw new Error(ask)
+    if (ask.scope.kind === 'everything' || ask.scope.kind === 'nowhere') {
+      throw new Error('add_note needs the document the note is about. A note with no anchor is a thought with nowhere to go back to.')
+    }
+    const scope = ask.scope
+    const op: Op = {
+      op: 'add',
+      project: ask.project,
+      projectPath: ask.projectPath,
+      path: scope.path,
+      page: scope.kind === 'page' ? scope.page : scope.kind === 'passage' ? scope.page : null,
+      from: scope.kind === 'passage' ? scope.from : null,
+      to: scope.kind === 'passage' ? scope.to : null,
+      quoted: str(args.quoted, MAX_QUOTE),
+      body: str(args.body, MAX_BODY),
+      by,
+      viaMcp: true,
+    }
+    const out = change(op)
+    if (!out.ok) throw new Error(out.error)
+    return `${out.said}, as ${out.id}.\n\n${lookText(look(ask, false))}`
+  }
+
+  const id = str(args.note, MAX_ID)
+  if (!id) {
+    throw new Error(
+      `${name} needs the id of the note, which the notes tool prints at the start of each one. It is not the note's `
+      + 'words and it is not its position — both of those move, and an id does not.',
+    )
+  }
+
+  if (name === 'reply_to_note') {
+    const out = change({ op: 'reply', id, body: str(args.body, MAX_BODY), by, viaMcp: true })
+    if (!out.ok) throw new Error(out.error)
+    return out.said
+  }
+
+  if (name === 'resolve_note') {
+    const out = change({ op: 'resolve', id, done: args.done !== false, by, viaMcp: true })
+    if (!out.ok) throw new Error(out.error)
+    return out.said
+  }
+
+  /* reanchor_note, and the only tool that changes what a note is about. */
+  const from = count(args.from)
+  const to = count(args.to)
+  if (from === null || to === null) {
+    throw new Error(
+      'reanchor_note needs from and to: whole numbers of bytes saying where the passage is NOW. Without both, this '
+      + 'would be moving a note to a place nobody named. Nothing was moved.',
+    )
+  }
+  const out = change({ op: 'reanchor', id, from, to, quoted: str(args.quoted, MAX_QUOTE), by, viaMcp: true })
+  if (!out.ok) throw new Error(out.error)
+  return out.said
+}
+
+/** A status and a document. Nothing here writes bytes; the adapter does that. */
+export interface Reply {
+  status: number
+  /** `null` means "answer with no body", which is what a notification gets. */
+  body: unknown
+}
+
+const ok = (body: unknown): Reply => ({ status: 200, body })
+const bad = (why: string, status = 400): Reply => ({ status, body: { ok: false, error: why } })
+
+interface Rpc {
+  id?: number | string
+  method?: string
+  params?: { name?: string; arguments?: Record<string, unknown> }
+}
+
+const TOOL_NAMES = ['notes', 'add_note', 'reply_to_note', 'resolve_note', 'reanchor_note']
+
+function mcp(rpc: Rpc): Reply {
+  const reply = (result: unknown) => ok({ jsonrpc: '2.0', id: rpc.id ?? null, result })
+  const text = (s: string, isError = false) =>
+    reply({ content: [{ type: 'text', text: s }], ...(isError ? { isError } : {}) })
+
+  if (rpc.method === 'initialize') {
+    return reply({
+      protocolVersion: '2025-06-18',
+      capabilities: { tools: {} },
+      serverInfo: { name: ID, version: VERSION },
+      instructions:
+        'Notes anchored to passages of documents: a file, a page, a byte range, and the words that were there when '
+        + 'the note was written. Every read says whether each anchor still holds — MOVED when the offsets rotted and '
+        + 'the words are still in the file, ADRIFT when the passage is gone. Nothing is ever silently re-anchored '
+        + 'and nothing is ever deleted.',
+    })
+  }
+  /* A notification carries no id and is answered with nothing. */
+  if (typeof rpc.method === 'string' && rpc.method.startsWith('notifications/')) {
+    return { status: 202, body: null }
+  }
+  if (rpc.method === 'tools/list') return reply({ tools: tools() })
+
+  if (rpc.method === 'tools/call') {
+    const name = String(rpc.params?.name ?? '')
+    const args = (rpc.params?.arguments ?? {}) as Record<string, unknown>
+    try {
+      if (TOOL_NAMES.includes(name)) return text(call(name, args))
+    } catch (e) {
+      /* A refusal is an answer, and the sentence is the useful half — every one
+         of them names what to do instead. So it comes back as a tool error the
+         agent reads, not as a transport failure it retries. */
+      return text(e instanceof Error ? e.message : String(e), true)
+    }
+    const shown = name.length > 60 ? `${name.slice(0, 60)}…` : name
+    return text(`no tool "${shown}" here`, true)
+  }
+
+  return {
+    status: 404,
+    body: { jsonrpc: '2.0', id: rpc.id ?? null, error: { code: -32601, message: String(rpc.method) } },
+  }
+}
+
+/**
+ * Every door but the page, as one function.
+ *
+ * `null` means "this path is not ours", and the caller passes it on to Vite —
+ * which is how the page, the client module and Vite's own hot-reload socket keep
+ * working without being enumerated here.
+ */
+export function answer(
+  method: string,
+  path: string,
+  query: URLSearchParams,
+  body: Record<string, unknown> | null,
+  ticket: string | null,
+): Reply | null {
+  if (path === '/healthz') {
+    const { total, trouble } = howMany()
+    return ok({ ok: !trouble, id: ID, version: VERSION, notes: total })
+  }
+
+  if (path === '/mcp') {
+    if (method !== 'POST') return bad('the MCP door takes POST', 405)
+    if (!body || typeof body.method !== 'string') {
+      return { status: 400, body: { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'not a request' } } }
+    }
+    return mcp(body as Rpc)
+  }
+
+  /*
+   * One screen's worth of notes.
+   *
+   * The passage rides in the query rather than the path because it has four
+   * parts and a path would have to encode them into one, which is exactly the
+   * ambiguity the ladder is built to avoid. Reads are ungated like every other
+   * read here; a note is not a secret from anything that could open the page.
+   */
+  if (path === '/api/notes' && method === 'GET') {
+    const ask = asked({
+      project: query.get('project'),
+      projectPath: query.get('projectPath'),
+      path: query.get('path'),
+      page: query.get('page'),
+      from: query.get('from'),
+      to: query.get('to'),
+      everything: query.get('everything') === '1',
+    })
+    if (typeof ask === 'string') return bad(ask)
+    const looked = look(ask, query.get('resolved') === '1')
+    return ok({
+      ok: true,
+      said: looked.said,
+      scope: looked.narrowed.scope,
+      shown: looked.narrowed.shown,
+      adrift: looked.narrowed.adrift,
+      elsewhere: looked.narrowed.elsewhere,
+      verified: looked.verified,
+      trouble: looked.trouble,
+    })
+  }
+
+  if (method === 'POST' && path.startsWith('/api/')) {
+    /* The gate on every write, and it is one line because the whole argument for
+       it is in `TICKET` above. An agent's door is `/mcp` and is deliberately
+       above this check: an MCP client is not a browser, has no page to have been
+       handed a ticket, and requiring one there would mean the door could never
+       be opened by the thing it exists for. */
+    if (ticket !== TICKET) return bad('that press did not come from this app’s own page', 403)
+    if (!body) return bad('that was not a request')
+
+    if (path === '/api/note') {
+      const op = str(body.op, 16)
+      const by = OWNER
+
+      if (op === 'add') {
+        const from = body.from === null || body.from === undefined ? null : count(body.from)
+        const to = body.to === null || body.to === undefined ? null : count(body.to)
+        return ok(
+          change({
+            op: 'add',
+            project: str(body.project, 120) || null,
+            projectPath: str(body.projectPath, MAX_PATH) || null,
+            path: str(body.path, MAX_PATH),
+            page: body.page === null || body.page === undefined ? null : count(body.page),
+            from,
+            to,
+            quoted: str(body.quoted, MAX_QUOTE),
+            body: str(body.body, MAX_BODY),
+            by,
+          }),
+        )
+      }
+
+      const id = str(body.id, MAX_ID)
+      if (!id) return bad('that change did not say which note it was about.')
+      if (op === 'reply') return ok(change({ op: 'reply', id, body: str(body.body, MAX_BODY), by }))
+      if (op === 'resolve') return ok(change({ op: 'resolve', id, done: body.done !== false, by }))
+      if (op === 'reanchor') {
+        const from = count(body.from)
+        const to = count(body.to)
+        if (from === null || to === null) {
+          return bad('a re-anchor needs both ends of where the passage is now, and nothing was moved.')
+        }
+        return ok(change({ op: 'reanchor', id, from, to, quoted: str(body.quoted, MAX_QUOTE), by }))
+      }
+      /* Named rather than shrugged at, because the page and this store are one
+         program: an op this door does not know is this app's own bug and the
+         next person to read a log is the one who has to find it. */
+      return bad(`there is no "${op}" to do to a note — it is add, reply, resolve or reanchor.`)
+    }
+  }
+
+  /* An unknown path under `/api/` is ours to refuse rather than Vite's to try
+     and serve as a source file. Anything else is not ours at all. */
+  if (path.startsWith('/api/')) return bad('not here', 404)
+  return null
+}
+
+export { MANIFEST }
