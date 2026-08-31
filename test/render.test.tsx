@@ -119,8 +119,26 @@ describe('nothing long is ever put in a badge', () => {
 
   test('a document path is not inside one either', () => {
     render(<NoteRow one={anchored('exact')} actions={actions} />)
-    const where = screen.getByText(/chapters\/bridge\.tex/)
+    const where = screen.getByText(/bridge\.tex/)
     expect(where.closest('[data-slot="badge"]')).toBe(null)
+  })
+
+  /*
+   * The row prints the file's name, not its address. Every row on a list about
+   * one document was repeating the same ninety-character absolute path, under a
+   * heading that had just printed it too.
+   */
+  test('a row names the file rather than spelling out where it lives', () => {
+    render(<NoteRow one={anchored('exact')} actions={actions} />)
+    const where = screen.getByText(/bridge\.tex/)
+    expect(where.textContent).not.toContain('/w/thesis/chapters')
+  })
+
+  /* And the whole path is still there to be read, one hover away. */
+  test('the whole path is kept as the title', () => {
+    render(<NoteRow one={anchored('exact')} actions={actions} />)
+    const where = screen.getByText(/bridge\.tex/)
+    expect(where.getAttribute('title')).toBe('/w/thesis/chapters/bridge.tex')
   })
 
   test('every badge on a row is a word this file chose and not a string from a note', () => {

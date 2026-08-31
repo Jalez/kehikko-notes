@@ -3,6 +3,8 @@ import { useState } from 'react'
 import type { Anchored } from '@/store/ask.ts'
 import { sourceOf } from '../../notes/shape.ts'
 import { Badge } from '@/components/ui/badge.tsx'
+import { fileOf } from '../../notes/scope.ts'
+
 import { Button } from '@/components/ui/button.tsx'
 
 /**
@@ -72,12 +74,20 @@ export function NoteRow({
      before this field existed — where it is absent rather than null — is read
      as what it is: something a person typed. */
   const source = sourceOf(note)
+  /*
+   * Where the note is, in the file's own name rather than its address.
+   *
+   * Every row on a list of notes about one document repeated the same
+   * ninety-character absolute path, under a heading that had just printed it as
+   * well. It is the reader's own project folder; they know where it is. The
+   * whole path stays as the `title`, one hover from being read.
+   */
   const where =
     anchor.from === null
       ? note.page === null
-        ? note.path
-        : `${note.path} · page ${note.page}`
-      : `${note.path} · ${anchor.from}–${anchor.to}`
+        ? fileOf(note.path)
+        : `${fileOf(note.path)} · page ${note.page}`
+      : `${fileOf(note.path)} · ${anchor.from}–${anchor.to}`
 
   /**
    * Pressing the row points the paper at it.
@@ -146,7 +156,9 @@ export function NoteRow({
 
       {/* The path and the range: somebody else's string, so it wraps rather than
           widening the container. Never in a badge. */}
-      <p className="mt-1 min-w-0 text-[0.65rem] text-muted-foreground">{where}</p>
+      <p title={note.path} className="mt-1 min-w-0 text-[0.65rem] text-muted-foreground">
+        {where}
+      </p>
 
       {/*
         The quote, for a note somebody TYPED, and never for one lifted out of

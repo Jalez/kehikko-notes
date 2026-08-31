@@ -222,6 +222,46 @@ export function narrow(all: Anchored[], scope: Scope): Narrowed {
  * and on the screen, and two spellings of "notes on page 7" is how an agent and
  * a reader end up describing different lists to each other.
  */
+/**
+ * The file's own name, for a reader who is looking at one file.
+ *
+ * `saidOf` prints the whole path and should: it answers an agent that may be
+ * standing anywhere, and a bare `main.tex` is not an address. On screen the
+ * same string is noise of a particular kind — it was printed twice, in the
+ * heading and again on every row, and
+
+ *     /Users/jaakkorajala/Claude/Projects/CS-DEGREE/05_drafts/thesis_latex/main.tex
+ *
+ * is ninety characters of a path a reader chose and already knows, in a column
+ * that is two hundred and twenty pixels wide. What tells them anything is the
+ * last segment.
+ *
+ * The full path is not thrown away; it is the `title` of the element that shows
+ * the short one, so it is one hover from being read and one copy from being
+ * pasted.
+ */
+export function fileOf(path: string): string {
+  const cut = path.lastIndexOf('/')
+  return cut === -1 ? path : path.slice(cut + 1)
+}
+
+/**
+ * The same ladder as `saidOf`, for a column rather than a sentence.
+ *
+ * Deliberately beside it and not in a component: these two must always be the
+ * same ladder, and the way to keep them so is for the next person changing one
+ * to be looking at the other. What differs is only how much of it is spelled
+ * out — a heading a reader glances at while reading the notes under it, against
+ * a sentence an agent is given with no other context.
+ */
+export function briefOf(scope: Scope): string {
+  if (scope.kind === 'nowhere') return 'nothing open'
+  if (scope.kind === 'everything') return 'every note in this project'
+  if (scope.kind === 'document') return fileOf(scope.path)
+  if (scope.kind === 'page') return `${fileOf(scope.path)} \u00b7 page ${scope.page}`
+  return `${fileOf(scope.path)} \u00b7 ${scope.from}\u2013${scope.to}`
+}
+
 export function saidOf(scope: Scope): string {
   if (scope.kind === 'nowhere') return 'No document is open, so there is no place for a note to be about.'
   if (scope.kind === 'everything') return 'Every note in this project.'

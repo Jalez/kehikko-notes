@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { Anchored } from '../notes/anchor.ts'
-import { narrow, pathOf, saidOf, scopeOf } from '../notes/scope.ts'
+import { briefOf, fileOf, narrow, pathOf, saidOf, scopeOf } from '../notes/scope.ts'
 import type { Note } from '../notes/shape.ts'
 
 /**
@@ -198,5 +198,41 @@ describe('what the container and the door both say about a scope', () => {
     expect(saidOf({ kind: 'document', path: PATH })).toContain(PATH)
     expect(saidOf({ kind: 'page', path: PATH, page: 7 })).toContain('page 7')
     expect(saidOf({ kind: 'passage', path: PATH, page: 7, from: 10, to: 20 })).toContain('10–20')
+  })
+})
+
+describe('the short form a reader sees', () => {
+  /*
+   * The heading used to spell out a ninety-character absolute path that every
+   * row below it printed again. `briefOf` is the same ladder as `saidOf`, said
+   * in the width there actually is.
+   */
+  test('names the file rather than its address', () => {
+    expect(briefOf({ kind: 'document', path: '/Users/someone/thesis/main.tex' })).toBe('main.tex')
+  })
+
+  test('a passage says which bytes', () => {
+    expect(briefOf({ kind: 'passage', path: '/w/main.tex', page: null, from: 7311, to: 7400 })).toBe(
+      'main.tex \u00b7 7311\u20137400',
+    )
+  })
+
+  test('a page says which page', () => {
+    expect(briefOf({ kind: 'page', path: '/w/main.tex', page: 3 })).toBe('main.tex \u00b7 page 3')
+  })
+
+  test('the widest rung needs no file at all', () => {
+    expect(briefOf({ kind: 'everything' })).toBe('every note in this project')
+  })
+
+  /* A path with no separator is already a name. */
+  test('a bare name survives', () => {
+    expect(fileOf('main.tex')).toBe('main.tex')
+  })
+
+  /* Every rung must still be sayable to an agent in full: the door answers
+     somebody who may be standing anywhere, and `main.tex` is not an address. */
+  test('the long form still spells the path out', () => {
+    expect(saidOf({ kind: 'document', path: '/w/main.tex' })).toContain('/w/main.tex')
   })
 })

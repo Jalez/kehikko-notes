@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ID } from '../manifest.ts'
 import { keyOf, shownAt as heldAt, standing, type Pointed } from '../notes/pointed.ts'
-import { saidOf, scopeOf } from '../notes/scope.ts'
+import { briefOf, fileOf, scopeOf, type Scope } from '../notes/scope.ts'
 
 import { Button } from '@/components/ui/button.tsx'
 import { edit, look, type Anchored, type Ask, type Change, type Looked } from '@/store/ask.ts'
@@ -57,9 +57,34 @@ export function App() {
   const [looked, setLooked] = useState<Looked | null>(null)
   const [refused, setRefused] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [everything, setEverything] = useState(false)
+  /**
+   * How far out the list is standing from the reader.
+   *
+   * `null` follows them. The other two are rungs of the ladder in
+   * `notes/scope.ts`, and the reason this is a ladder rather than the boolean
+   * it replaced is that the boolean had no middle: from a passage the only
+   * offer was "every note in this project", which is not the list you came
+   * from. A person who pressed a note to look at it in the paper, or who
+   * selected a sentence, had no way back to the notes on the file they were
+   * reading -- the rung they actually wanted, and the one the scope ladder
+   * already had a name for.
+   */
+  const [widen, setWiden] = useState<null | 'document' | 'everything'>(null)
   const [withResolved, setWithResolved] = useState(false)
   const [draft, setDraft] = useState('')
+  /**
+   * Whether the box for writing one is open.
+   *
+   * It used to be always open, which put a quotation of the passage and an
+   * empty textarea above every list of notes. On a passage that IS a note --
+   * press a note, and the canvas points at its own passage -- that quotation
+   * was the note's own words printed a second time, once with its markup and
+   * once without, directly above the row saying them.
+   *
+   * Opened by default only when there is nothing to read. Then the form is the
+   * answer to "there are no notes here", and nothing is being buried by it.
+   */
+  const [writing, setWriting] = useState(false)
   const [round, setRound] = useState(0)
   /** Whether the notes this app has stopped lifting are on screen. One press. */
   const [showWithdrawn, setShowWithdrawn] = useState(false)
@@ -129,6 +154,37 @@ export function App() {
 
   const scope = useMemo(() => scopeOf(shownAt), [shownAt])
 
+  /**
+   * The rung on screen, which is the passage's own scope until somebody climbs.
+   */
+  const shownScope: Scope = useMemo(() => {
+    if (widen === 'everything') return { kind: 'everything' }
+    if (widen === 'document' && shownAt) return { kind: 'document', path: shownAt.path }
+    return scopeOf(shownAt)
+  }, [widen, shownAt])
+
+  /**
+   * The way out, in at most two presses, and never more than the rung allows.
+   *
+   * One climbs and one returns, and they are separate because a single control
+   * that did both would have to be labelled with neither. A reader narrowed to
+   * a passage wants the file; a reader on the file may want the project; a
+   * reader anywhere out wants to be following again. Nothing offers a rung it
+   * is already on, and nothing offers "follow the reader" to somebody who
+   * already is.
+   */
+  const climbs = useMemo(() => {
+    const out: { said: string; press: () => void }[] = []
+    if (widen === null && (shownScope.kind === 'passage' || shownScope.kind === 'page')) {
+      out.push({ said: `all of ${fileOf(shownScope.path)}`, press: () => setWiden('document') })
+    }
+    if (widen === 'document') {
+      out.push({ said: 'all in project', press: () => setWiden('everything') })
+    }
+    if (widen !== null) out.push({ said: 'follow the reader', press: () => setWiden(null) })
+    return out
+  }, [widen, shownScope])
+
   /* Read inside the press, which is why it is a ref: `actions` is memoised on
      what a press NEEDS, and adding the current scope to that list would rebuild
      every row's handlers on every move of the reader. */
@@ -157,7 +213,7 @@ export function App() {
        reader answering "nothing is pointing"; it is this list sending them
        somewhere, and it must not throw away the widened view it was pressed
        from any more than it throws away a narrow one. */
-    if (passage && !standing(pointed, passage)) setEverything(false)
+    if (passage && !standing(pointed, passage)) setWiden(null)
   }, [passage, pointed])
 
   /*
@@ -178,10 +234,26 @@ export function App() {
   const ask: Ask | null = useMemo(() => {
     if (where === 'listening') return null
     if (!projectPath) return null
-    if (everything) {
+    if (widen === 'everything') {
       return { project, projectPath, path: null, page: null, from: null, to: null, everything: true, resolved: withResolved }
     }
     if (!shownAt) return null
+    /* One rung out: the whole file, with the range and the page dropped. The
+       document rung is what "back" means for somebody reading one document, and
+       it costs nothing to ask for -- the store has always been able to answer
+       it, and nothing offered it. */
+    if (widen === 'document') {
+      return {
+        project,
+        projectPath,
+        path: shownAt.path,
+        page: null,
+        from: null,
+        to: null,
+        everything: false,
+        resolved: withResolved,
+      }
+    }
     return {
       project,
       projectPath,
@@ -192,7 +264,7 @@ export function App() {
       everything: false,
       resolved: withResolved,
     }
-  }, [where, everything, shownAt, project, projectPath, withResolved])
+  }, [where, widen, shownAt, project, projectPath, withResolved])
 
   /*
    * Re-read on every change of scope, and after every write.
@@ -337,18 +409,52 @@ export function App() {
      offering it here would be offering to read a file that does not exist. */
   if (!projectPath) return <NoProject unhosted={where === 'unhosted'} />
   if (looked?.trouble) return <Trouble said={looked.trouble} />
-  if (!ask) return <Nowhere project={project} onEverything={() => setEverything(true)} />
+  if (!ask) return <Nowhere project={project} onEverything={() => setWiden('everything')} />
 
-  const canWrite = !everything && scope.kind !== 'nowhere' && scope.kind !== 'everything'
+  const canWrite = widen === null && scope.kind !== 'nowhere' && scope.kind !== 'everything'
+  /* Nothing to read HERE -- adrift and withdrawn notes are on the document
+     rather than at this scope, and a form opening over them would be the same
+     burial in a different place. */
+  const nothingHere = !looked?.shown.length
 
   return (
     <div ref={body} className="min-w-0 space-y-2 p-2 @sm/container:p-3">
-      {/* What this container is showing, in the words the door uses for the same
-          scope. Never "Notes (3)" — a count is not a scope, and a reader who
-          cannot see what was narrowed cannot tell narrowing from a bug. */}
-      <p data-testid="scope" className="min-w-0 text-xs font-medium">
-        {everything ? saidOf({ kind: 'everything' }) : (looked?.said ?? saidOf(scope))}
-      </p>
+      {/*
+       * What this container is showing, and the way out of it.
+       *
+       * The scope is still never a count -- a reader who cannot see what was
+       * narrowed cannot tell narrowing from a bug -- but it is now the short
+       * form of the same ladder. The sentence it replaced spelled out a
+       * ninety-character absolute path that was printed again on every row
+       * below it, in a column too narrow for one of them. `title` keeps the
+       * whole path one hover away; see `briefOf`.
+       *
+       * The way back sits ON the heading rather than among the toggles at the
+       * bottom, because it is not a preference. It is the answer to "how do I
+       * get back to the notes I was looking at", and it was the one control
+       * that did not exist: from a passage the only offer was "every note in
+       * this project", two rungs out and a different list.
+       */}
+      <div className="flex min-w-0 items-baseline gap-2">
+        <p
+          data-testid="scope"
+          title={widen === 'everything' ? undefined : (shownAt?.path ?? undefined)}
+          className="min-w-0 flex-1 truncate text-xs font-medium"
+        >
+          {briefOf(shownScope)}
+        </p>
+        {climbs.map((climb) => (
+          <Button
+            key={climb.said}
+            size="container"
+            variant="ghost"
+            data-testid="widen"
+            onClick={climb.press}
+          >
+            {climb.said}
+          </Button>
+        ))}
+      </div>
 
       {refused ? (
         <p data-testid="refusal" className="min-w-0 text-xs text-adrift">
@@ -362,7 +468,13 @@ export function App() {
         </p>
       ) : null}
 
-      {canWrite ? (
+      {canWrite && !nothingHere && !writing ? (
+        <Button size="container" variant="ghost" data-testid="write" onClick={() => setWriting(true)}>
+          write a note here
+        </Button>
+      ) : null}
+
+      {canWrite && (writing || nothingHere) ? (
         <form
           className="min-w-0 space-y-1"
           onSubmit={(event) => {
@@ -377,7 +489,10 @@ export function App() {
               quoted: passage.quoted,
               body: draft.trim(),
             }).then((ok) => {
-              if (ok) setDraft('')
+              if (ok) {
+                setDraft('')
+                setWriting(false)
+              }
             })
           }}
         >
@@ -399,9 +514,16 @@ export function App() {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
           />
-          <Button size="container" type="submit" disabled={busy || !draft.trim()}>
-            write note
-          </Button>
+          <div className="flex min-w-0 flex-wrap gap-1">
+            <Button size="container" type="submit" disabled={busy || !draft.trim()}>
+              write note
+            </Button>
+            {writing && !nothingHere ? (
+              <Button size="container" variant="ghost" type="button" onClick={() => setWriting(false)}>
+                cancel
+              </Button>
+            ) : null}
+          </div>
         </form>
       ) : null}
 
@@ -485,11 +607,9 @@ export function App() {
         <Button size="container" variant="ghost" onClick={() => setWithResolved((was) => !was)}>
           {withResolved ? 'hide resolved' : 'show resolved'}
         </Button>
-        {passage ? (
-          <Button size="container" variant="ghost" onClick={() => setEverything((was) => !was)}>
-            {everything ? 'follow the reader' : 'every note in this project'}
-          </Button>
-        ) : null}
+        {/* Widening moved to the heading, where it reads as the way back rather
+            than as one more preference. What is left here is the one thing that
+            genuinely is a preference. */}
       </div>
     </div>
   )
