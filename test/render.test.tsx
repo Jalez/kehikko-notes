@@ -11,7 +11,7 @@ import { NoProject, Nowhere } from '../src/view/screens.tsx'
  *
  * A fake renderer would let a component say something different from what it
  * says in a browser, and half the value here is that the sentences are the
- * thing being tested — a pane that draws an adrift note without saying it is
+ * thing being tested — a container that draws an adrift note without saying it is
  * adrift is the exact failure this module exists to prevent, and it is a
  * failure made entirely of text.
  */
@@ -106,7 +106,7 @@ describe('nothing long is ever put in a badge', () => {
   /*
    * The trap named in `badge.tsx`: shadcn's badge carries `whitespace-nowrap`,
    * and a quoted passage inside one sets a min-content floor far wider than the
-   * pane. So the quote is a blockquote and the path is a paragraph, and this
+   * container. So the quote is a blockquote and the path is a paragraph, and this
    * asserts the RESULT rather than the technique.
    */
   test('a quoted passage is not inside anything that refuses to wrap', () => {
@@ -174,7 +174,7 @@ describe('a note lifted out of the .tex is not mistaken for one somebody typed',
 
   test('it says so on the row, and says who wrote it and where', () => {
     /* Two claims about one sentence — the author's `\todo{}` and somebody's
-       thought in the pane — read identically unless the row says which is
+       thought in the container — read identically unless the row says which is
        which, and a reader who cannot tell them apart believes both equally.
        That is the same argument `viaMcp` was added for. */
     render(<NoteRow one={fromSource(true)} actions={actions} />)

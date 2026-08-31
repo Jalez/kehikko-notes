@@ -1,7 +1,7 @@
 # Notes
 
 Notes anchored to a place in a document: a file, a page, a byte range, and the
-words that were there when the note was written. The pane narrows as the reader
+words that were there when the note was written. The container narrows as the reader
 narrows.
 
 An app. Its own store, its own page, its own port. A host may frame it, and then
@@ -30,7 +30,7 @@ travels as one nullable field in `roadmap.context`:
 passage: { path, page, from, to, quoted } | null
 ```
 
-| what the host says | what this pane shows |
+| what the host says | what this container shows |
 | --- | --- |
 | `null` | An explanation. No document is open, so there is no place for a note to be about. |
 | `{ path }` | Every note on that document. |

@@ -102,7 +102,7 @@ const AUTHOR = 'the author, in the source'
  * invent is wrong in a different way:
  *
  * - `process.cwd()` is THIS module's own directory. Notes would be filed under
- *   `/Users/…/kehikko-notes` and no pane would ever show one.
+ *   `/Users/…/kehikko-notes` and no container would ever show one.
  * - "wherever the last person was looking" is state this app deliberately does
  *   not keep, and would mean an agent's notes landing in whichever project
  *   somebody else happened to be standing in.
@@ -231,7 +231,7 @@ export interface Looked {
  * opened, so no other project's notes are ever in hand to be filtered wrongly
  * and no other project's document is ever opened. Resolving before narrowing
  * means the range test runs against where a note points NOW, so an edit above
- * the reader does not empty the pane — and means a note whose anchor is gone is
+ * the reader does not empty the container — and means a note whose anchor is gone is
  * known to be gone before anything decides whether to show it.
  */
 export function look(asked: Asked, includeResolved: boolean): Looked {
@@ -297,7 +297,7 @@ function tools() {
       name: 'notes',
       description:
         'What has been written against a document, narrowed to where you are looking. Give path for the whole file, '
-        + 'add page for one page of it, or add from and to for one passage — the same ladder the pane uses, so you '
+        + 'add page for one page of it, or add from and to for one passage — the same ladder the container uses, so you '
         + 'and whoever is reading see the same list. Every note comes back with whether its anchor still points at '
         + 'the words it was written about: MOVED means the offsets rotted and the words are still there, ADRIFT '
         + 'means the passage is gone. Read this before editing a file; a note you did not read is a note you are '
@@ -395,7 +395,7 @@ function tools() {
         + 'where they sit in the file. Safe to call repeatedly: an annotation is identified by a hash of its WORDS, '
         + 'so reading a chapter twice produces one note and not two. Nothing is ever deleted — an annotation you have '
         + 'removed from the file is marked as no longer in the source and kept, with whatever was said about it. Call '
-        + 'this after editing a .tex if you want the pane to catch up immediately; it happens on its own whenever '
+        + 'this after editing a .tex if you want the container to catch up immediately; it happens on its own whenever '
         + 'somebody looks at notes for a document.',
       inputSchema: {
         type: 'object',
@@ -431,7 +431,7 @@ function noteText(one: Anchored): string {
       : `${note.path} bytes ${anchor.from}–${anchor.to}`
   /* Where a note came FROM, on the line an agent reads first.
      A `\todo{}` the author left in their own .tex and a thought somebody typed
-     into the pane are different claims — one is a task list the author keeps in
+     into the container are different claims — one is a task list the author keeps in
      a file they will edit, the other is a conversation — and an agent that
      cannot tell them apart will answer both the same way. `[GONE FROM SOURCE]`
      is the other half: the annotation has left the file, the note has not, and

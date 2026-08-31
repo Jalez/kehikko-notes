@@ -17,7 +17,7 @@ export const VERSION = '1.0.0'
  * - **`passage:set` — declared, and it is the only capability this app asks
  *   for.** This file used to call it "the interesting omission" and argue that
  *   a consumer of passages must never produce one: declaring it would be
- *   "asking for permission to move every other pane on the canvas, in a module
+ *   "asking for permission to move every other container on the canvas, in a module
  *   whose whole job is to answer a question about where somebody else is
  *   already pointing."
  *
@@ -27,7 +27,7 @@ export const VERSION = '1.0.0'
  *   sentence this module cannot answer no to. A note IS a passage: a path, a
  *   page, a range and the words that were there. Somebody pressing one is a
  *   person pointing at it again, and this app holds the only record of where it
- *   is. Refusing would leave a pane that can tell you a note exists on
+ *   is. Refusing would leave a container that can tell you a note exists on
  *   `chapters/3_methods.tex` at bytes 8140–8402 and cannot show you the
  *   sentence.
  *
@@ -62,14 +62,14 @@ export const VERSION = '1.0.0'
  *   argument does not carry here yet, and shipping the machinery for it would
  *   be a second thing to keep working. It is the obvious next capability.
  * - **`state:keep` — not declared.** There is nothing to remember. What this
- *   pane shows is decided entirely by the context it is handed; a filter
- *   remembered across sessions would be a pane showing something other than
+ *   container shows is decided entirely by the context it is handed; a filter
+ *   remembered across sessions would be a container showing something other than
  *   what the reader is pointing at, which is the one thing it must not do.
  *
  * ## `prompt: false`
  *
  * The protocol offers a module a prompt: a paragraph a person writes on the
- * canvas, aimed at one pane, composed by the host and delivered in every
+ * canvas, aimed at one container, composed by the host and delivered in every
  * context. Declaring it makes a host OFFER one, so the question is whether
  * there is work here that has to be described before it can be done.
  *
@@ -85,7 +85,7 @@ export const VERSION = '1.0.0'
  * One mode, which becomes an ordinary tab in the mode row. `scope: 'epic'`
  * because an epic-scoped mode is the one that receives `roadmap.context` — and
  * the context is where `passage` lives. A `global` mode is never sent one,
- * which for this app would mean a pane that can never learn what anybody is
+ * which for this app would mean a container that can never learn what anybody is
  * pointing at. It also carries `projectPath`, which is what partitions the
  * store, so a global mode would additionally mean every project's notes in one
  * pile.

@@ -25,7 +25,7 @@ import {
  * store, and this module's whole claim is about not doing that.
  *
  * Every refusal is a SENTENCE and never a code. Whoever is reading it is either
- * a person looking at a pane or an agent that has to decide what to do next,
+ * a person looking at a container or an agent that has to decide what to do next,
  * and both of them need to be told what to do instead.
  *
  * ## Every function here takes the project, and that REPLACED a filter
@@ -100,7 +100,7 @@ export function read(projectPath: string | null | undefined): Read {
       store: { ...EMPTY, notes: [] },
       trouble:
         `This app could not read its own store at ${path}. Nothing has been changed and nothing has been thrown `
-        + 'away — the file is still there. Until it parses, this pane will show no notes and refuse to write any, '
+        + 'away — the file is still there. Until it parses, this container will show no notes and refuse to write any, '
         + 'because writing would replace whatever is in it.',
       nowhere: false,
     }

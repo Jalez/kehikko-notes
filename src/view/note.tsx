@@ -42,7 +42,7 @@ export interface NoteActions {
   resolve: (id: string, done: boolean) => void
   reanchor: (one: Anchored) => void
   /**
-   * Point every pane on the canvas at this note's passage.
+   * Point every container on the canvas at this note's passage.
    *
    * Handed in rather than done here, because what it takes is a host and this
    * component has never seen one — the same split `app.tsx` keeps for every
@@ -112,11 +112,11 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
           sentence, and this row already makes that argument once for the MCP
           door. It has to be made again here, and more loudly: a derived note is
           the only kind whose words are also somewhere else, being edited by
-          somebody who has never seen this pane.
+          somebody who has never seen this container.
           "in the source" and "gone from source" are FIXED words chosen by this
           file — never the path, never the annotation, never the author. A badge
           carries `whitespace-nowrap`, and a variable string inside one is how a
-          220px pane acquires a 1187px min-content floor. The path is below, in
+          220px container acquires a 1187px min-content floor. The path is below, in
           a `<p>` that wraps.
         */}
         {source ? (
@@ -127,7 +127,7 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
       </div>
 
       {/* The path and the range: somebody else's string, so it wraps rather than
-          widening the pane. Never in a badge. */}
+          widening the container. Never in a badge. */}
       <p className="mt-1 min-w-0 text-[0.65rem] text-muted-foreground">{where}</p>
 
       {/*
@@ -203,10 +203,10 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
       ) : null}
 
       <div className="mt-1.5 flex flex-wrap gap-1">
-        <Button size="pane" variant="ghost" onClick={() => setReplying((was) => !was)}>
+        <Button size="container" variant="ghost" onClick={() => setReplying((was) => !was)}>
           {replying ? 'cancel' : 'reply'}
         </Button>
-        <Button size="pane" variant="ghost" disabled={actions.busy} onClick={() => actions.resolve(note.id, !note.resolved)}>
+        <Button size="container" variant="ghost" disabled={actions.busy} onClick={() => actions.resolve(note.id, !note.resolved)}>
           {note.resolved ? 'reopen' : 'resolve'}
         </Button>
         {/*
@@ -216,7 +216,7 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
          * inventing a range, which is the failure the whole module is against.
          */}
         {anchor.state === 'moved' ? (
-          <Button size="pane" variant="outline" disabled={actions.busy} onClick={() => actions.reanchor(one)}>
+          <Button size="container" variant="outline" disabled={actions.busy} onClick={() => actions.reanchor(one)}>
             re-anchor
           </Button>
         ) : null}
@@ -230,7 +230,7 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
          * whatever text now sits at offsets nobody has verified.
          */}
         {actions.point ? (
-          <Button size="pane" variant="ghost" onClick={press}>
+          <Button size="container" variant="ghost" onClick={press}>
             {anchor.from === null ? 'open in the paper' : 'show in the paper'}
           </Button>
         ) : null}
@@ -253,7 +253,7 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
           />
-          <Button size="pane" type="submit" disabled={actions.busy || !draft.trim()}>
+          <Button size="container" type="submit" disabled={actions.busy || !draft.trim()}>
             leave reply
           </Button>
         </form>

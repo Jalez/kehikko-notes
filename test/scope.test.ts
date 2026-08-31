@@ -57,7 +57,7 @@ function shifted(over: Partial<Note>, to: { from: number; to: number }): Anchore
   }
 }
 
-describe('which rung a passage puts the pane on', () => {
+describe('which rung a passage puts the container on', () => {
   test('nothing pointing is nowhere', () => {
     expect(scopeOf(null)).toEqual({ kind: 'nowhere' })
   })
@@ -181,7 +181,7 @@ describe('a note that cannot be placed is never narrowed away', () => {
 })
 
 describe('a note whose offsets rotted is found where its words are now', () => {
-  test('so an edit above the reader does not empty the pane', () => {
+  test('so an edit above the reader does not empty the container', () => {
     /* Stored at 100–140; the document grew by 400 bytes above it, so the words
        are at 500–540. A range test against the STORED offsets would show
        nothing for a reader selecting the passage they are looking at. */
@@ -191,7 +191,7 @@ describe('a note whose offsets rotted is found where its words are now', () => {
   })
 })
 
-describe('what the pane and the door both say about a scope', () => {
+describe('what the container and the door both say about a scope', () => {
   test('one sentence per rung, so a reader and an agent describe the same list', () => {
     expect(saidOf({ kind: 'nowhere' })).toContain('No document is open')
     expect(saidOf({ kind: 'everything' })).toContain('Every note in this project')

@@ -29,7 +29,7 @@ import { Button } from '@/components/ui/button.tsx'
  *
  * ## Saying so is better than the button was
  *
- * A pane that drew a spinner, an error, or an empty list would each describe a
+ * A container that drew a spinner, an error, or an empty list would each describe a
  * fault that does not exist. `projectPath` is nullable on the wire for
  * perfectly ordinary reasons — nobody has opened a project, this page was
  * opened directly on its own port, or the host has no filesystem of its own to
@@ -67,7 +67,7 @@ export function NoProject({ unhosted }: { unhosted: boolean }) {
  *
  * `context.passage` is null whenever nothing on the canvas is showing a
  * document, which is a canvas somebody has just opened, a reader who closed
- * what they had, or a project whose papers nobody has placed. A pane that drew
+ * what they had, or a project whose papers nobody has placed. A container that drew
  * a spinner, or an error, or an empty list with no explanation would be
  * describing a bug that does not exist, for every reader with no document
  * open.
@@ -75,7 +75,7 @@ export function NoProject({ unhosted }: { unhosted: boolean }) {
  * So it says exactly what is true: notes are about places in documents, nobody
  * has said where anybody is standing, and here is the whole project instead if
  * that is what you wanted. The escape hatch is a PRESS rather than a default,
- * because the pane pretending it had been given a scope is the one thing that
+ * because the container pretending it had been given a scope is the one thing that
  * would make the ladder above it meaningless.
  */
 export function Nowhere({
@@ -88,14 +88,14 @@ export function Nowhere({
   return (
     <div className="min-w-0 space-y-2 p-3">
       <p className="text-xs text-muted-foreground">
-        No document is open, so there is no place for a note to be about. This pane narrows to whatever the reader is
+        No document is open, so there is no place for a note to be about. This container narrows to whatever the reader is
         pointing at — a document, a page of it, or a passage — and nothing on this canvas is pointing at anything.
       </p>
       <p className="text-xs text-muted-foreground">
         A module that shows documents has to say where its reader is standing before this one can follow. Until it
         does, nothing here is wrong; there is simply nowhere to narrow to.
       </p>
-      <Button size="pane" variant="outline" onClick={onEverything}>
+      <Button size="container" variant="outline" onClick={onEverything}>
         {project ? `show every note in ${project}` : 'show every note in this project'}
       </Button>
     </div>

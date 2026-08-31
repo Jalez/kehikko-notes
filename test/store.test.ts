@@ -103,7 +103,7 @@ describe('no project at all, which is a place a person can be', () => {
       expect(answer.store.notes).toEqual([])
       expect(answer.nowhere).toBe(true)
       /* Not trouble. Trouble means something was refused; this means nobody
-         asked, and a pane that drew it in red would be reporting a fault on a
+         asked, and a container that drew it in red would be reporting a fault on a
          canvas where nothing is wrong. */
       expect(answer.trouble).toBeNull()
     }

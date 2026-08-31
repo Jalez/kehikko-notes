@@ -53,7 +53,7 @@ cd "$(dirname "$0")"
 # a note's anchor still points at the words it was written about.
 #
 # Unset is a real and safe state: with no root, every anchor is reported
-# UNCHECKED rather than assumed good, and the pane says so on the row. The
+# UNCHECKED rather than assumed good, and the container says so on the row. The
 # fallback when this is unset is the project's own directory as the HOST names
 # it, which is the one place this app can be reasonably sure it was invited
 # into. See `notes/source.ts` for why the check is realpath-based and what it

@@ -11,7 +11,7 @@ import { readAnnotations } from '../notes/annotations.ts'
  *
  * ## Where these three rules came from
  *
- * One screenshot. A note in the pane printed the same comment twice — once with
+ * One screenshot. A note in the container printed the same comment twice — once with
  * its `%` markers and its rule lines, once without — and the comment was
  * `main.tex` bytes 0–515, which is a build header saying which university
  * template the file stands in for and how to compile it locally. Three separate
@@ -20,7 +20,7 @@ import { readAnnotations } from '../notes/annotations.ts'
  *   - a derived note showing its quote AND its body, which for a derived note
  *     are the same words twice (that one is in `view/note.tsx`);
  *   - sixty equals signs surviving into a note's text, which is a line somebody
- *     drew in an editor and also the widest unbreakable string a 220-pixel pane
+ *     drew in an editor and also the widest unbreakable string a 220-pixel container
  *     ever met;
  *   - the preamble being read as annotation at all, when the module drawing the
  *     same file beside it folds that region away and never shows it.
@@ -106,7 +106,7 @@ describe('a rule line is a drawing and not a sentence', () => {
   test('nothing that survives carries one', () => {
     /* The measured reason as well as the readable one: a sixty-character run of
        one character is unbreakable, and an unbreakable string in a 220-pixel
-       pane is a min-content floor the pane cannot get under. */
+       container is a min-content floor the container cannot get under. */
     for (const one of [...readAnnotations(SOURCE).kept, ...readAnnotations(SOURCE).withdrawn]) {
       expect(one.text).not.toMatch(/^[=\-_*~#+.]{4,}$/m)
     }
@@ -139,7 +139,7 @@ describe('the preamble is the build and not the paper', () => {
     expect(withdrawn).toHaveLength(3)
     /* The third is the `\todo` INSIDE `\newcommand{\missing}`, whose whole text
        is `\textbf{MISSING:} #1`. That is a definition of the note command, not
-       a note; lifting it put four of them in the pane. */
+       a note; lifting it put four of them in the container. */
     expect(withdrawn.some((one) => one.kind === 'todo' && one.text.includes('#1'))).toBe(true)
   })
 

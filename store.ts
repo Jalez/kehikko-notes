@@ -107,7 +107,7 @@ export const FILE = 'notes'
  * later flatten a real file the moment a project did arrive.
  *
  * Reading does not create anything. `makeDir()` is what creates, and it is
- * called on the write path only, so opening a pane against a project never
+ * called on the write path only, so opening a container against a project never
  * leaves a folder in somebody's repository they did not ask for.
  */
 export function dataFile(projectPath: string | null | undefined): { path: string | null; trouble: string | null } {
@@ -139,7 +139,7 @@ export function dataFile(projectPath: string | null | undefined): { path: string
  * Make the folder, and tell the project's `.gitignore` about it — once.
  *
  * Called before a write and not before a read, so that looking at a project
- * never changes it. A person who opens a notes pane against a repository and
+ * never changes it. A person who opens a notes container against a repository and
  * writes nothing should find that repository exactly as they left it.
  */
 export function makeDir(projectPath: string | null | undefined): { dir: string | null; trouble: string | null } {

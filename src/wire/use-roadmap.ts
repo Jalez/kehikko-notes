@@ -15,14 +15,14 @@ import { connect, type Host, type HostEvents } from './host.ts'
  *
  * Three facts and a theme. Which project the reader is in, where that project
  * is on disk, and where in a document they are pointing. Everything else the
- * pane shows comes from this app's own store, over its own `/api`; the one
+ * container shows comes from this app's own store, over its own `/api`; the one
  * thing ever ASKED of the host is `passage.set`, when a person presses a note.
- * Everything this pane draws comes out of a context it was handed.
+ * Everything this container draws comes out of a context it was handed.
  *
  * ## The passage is handed on whole and never remembered
  *
  * The one rule with teeth: `passage` is applied on every context, including
- * when it is null, and the page never keeps the last one. A pane that held onto
+ * when it is null, and the page never keeps the last one. A container that held onto
  * the last passage would go on showing the notes on a chapter the reader closed
  * ten minutes ago — indistinguishable, on screen, from the chapter still being
  * open. The protocol makes the field nullable precisely so that "no document"
@@ -80,13 +80,13 @@ export interface Roadmap {
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
   /**
-   * Point every pane on the canvas at a passage.
+   * Point every container on the canvas at a passage.
    *
    * ## This module asks for this, and it used to argue that it must not
    *
    * The manifest's essay called `passage:set` "the interesting omission": this
    * app is the CONSUMER of a passage, and asking to set one would be "asking
-   * for permission to move every other pane on the canvas, in a module whose
+   * for permission to move every other container on the canvas, in a module whose
    * whole job is to answer a question about where somebody else is already
    * pointing."
    *

@@ -11,7 +11,7 @@ import { sourceOf } from './shape.ts'
  * > it should show all notes related to that page vs if only a part of the page
  * > is selected."
  *
- * So the pane narrows as the reader narrows. That is one idea with four rungs
+ * So the container narrows as the reader narrows. That is one idea with four rungs
  * on it, and the rungs are the protocol's `passage` field read at its four
  * depths: no document, a document, a page of it, a range in that page.
  *
@@ -50,7 +50,7 @@ export type Scope =
   /**
    * Everything this project holds, because somebody asked for it in so many
    * words. Not a rung on the ladder — a deliberate act, and the only way past
-   * `nowhere`. See `App`: a pane that is honest about having no document still
+   * `nowhere`. See `App`: a container that is honest about having no document still
    * has to be usable by somebody who wants to see what they wrote yesterday.
    */
   | { kind: 'everything' }
@@ -68,11 +68,11 @@ export interface PassageLike {
 }
 
 /**
- * Which rung a passage puts the pane on.
+ * Which rung a passage puts the container on.
  *
  * One function, and every screen in this app reads its answer rather than
  * testing `passage?.from !== null` for itself. Three places asking the same
- * question three ways is how a pane ends up saying "page 7" in its heading and
+ * question three ways is how a container ends up saying "page 7" in its heading and
  * drawing a passage's notes underneath.
  */
 export function scopeOf(passage: PassageLike | null): Scope {
@@ -208,7 +208,7 @@ export function narrow(all: Anchored[], scope: Scope): Narrowed {
   }
 
   /* A passage. Overlap against where each note points NOW — the moved offsets
-     where it moved — so an edit above the reader does not empty the pane. */
+     where it moved — so an edit above the reader does not empty the container. */
   const shown = placed.filter((one) =>
     overlaps({ from: one.anchor.from as number, to: one.anchor.to as number }, { from: scope.from, to: scope.to }),
   )
@@ -216,7 +216,7 @@ export function narrow(all: Anchored[], scope: Scope): Narrowed {
 }
 
 /**
- * What the pane says it is showing, in one line a person reads.
+ * What the container says it is showing, in one line a person reads.
  *
  * Here rather than in a component because it is the same sentence at the door
  * and on the screen, and two spellings of "notes on page 7" is how an agent and

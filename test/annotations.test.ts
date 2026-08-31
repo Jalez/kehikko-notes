@@ -47,7 +47,7 @@ describe('what is found, and what is deliberately not', () => {
   test('a banner rule is a horizontal line and not an annotation', () => {
     /* These files open sections with `% =========` sixty characters wide.
        Stripped of the `%` that is a run of equals signs: not empty, not an
-       annotation, and a pane full of them is a pane nobody reads. */
+       annotation, and a container full of them is a container nobody reads. */
     for (const one of found) expect(one.text).not.toMatch(/^=+$/)
   })
 

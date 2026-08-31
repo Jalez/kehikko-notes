@@ -11,7 +11,7 @@ import { fingerprint } from './shape.ts'
  * `todo` segments here, and that was rejected: it would make one module's
  * parser this module's data source over a channel neither declares, so the
  * notes on a chapter would exist or not depending on whether somebody happened
- * to have another pane open. The long version is at the top of
+ * to have another container open. The long version is at the top of
  * `annotations.ts`.
  *
  * What this module already does is open files. `notes/source.ts` builds a
@@ -26,26 +26,26 @@ import { fingerprint } from './shape.ts'
  * The ask is that the author's `\todo{}`s appear beside the paper. The three
  * places it could happen:
  *
- * - **An MCP tool only.** Then the pane is empty until an agent thinks to run
+ * - **An MCP tool only.** Then the container is empty until an agent thinks to run
  *   something, and the ordinary case — a person opens a paper, opens notes,
  *   and expects to see the notes that are in the document — never happens at
  *   all. It also makes the notes on a chapter depend on whether an agent has
  *   visited it, which is a worse version of the dependency that ruled out
  *   Paper pushing them.
- * - **A button in the pane.** Better, and still asks a person to press
+ * - **A button in the container.** Better, and still asks a person to press
  *   something to be shown information the program already has. The press would
- *   never mean "no" — nobody opens a notes pane and declines to see the notes.
+ *   never mean "no" — nobody opens a notes container and declines to see the notes.
  * - **On read, when the scope names a file.** Which is this.
  *
  * A write on a read is worth being uncomfortable about, so it is bounded in two
  * ways. It only happens when the scope names a PATH — asking for everything in
  * a project reads no files, so no amount of browsing scans a tree. And it is
  * skipped when the file has not changed since the last read, so the common case
- * (a reader scrolling, the pane re-asking) touches nothing at all.
+ * (a reader scrolling, the container re-asking) touches nothing at all.
  *
  * The MCP tool exists as well, and is not redundant: an agent that has just
  * edited a chapter wants to say "read it again now" without waiting for
- * somebody to look at a pane, and it wants the count back.
+ * somebody to look at a container, and it wants the count back.
  */
 
 /**

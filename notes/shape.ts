@@ -125,7 +125,7 @@ export interface Reply {
  * of claim and the same rule applies twice over. Nobody wrote it HERE. It was
  * not a thought somebody had about a passage while reading; it is a thing the
  * author wrote inside the document, that this program went and fetched. A
- * reader must be able to tell "I wrote this in the pane" from "the author wrote
+ * reader must be able to tell "I wrote this in the container" from "the author wrote
  * this in the source", and so must an agent over MCP, because the two want
  * different things done about them: one is a conversation, the other is a task
  * list somebody keeps in their own file and will edit there.

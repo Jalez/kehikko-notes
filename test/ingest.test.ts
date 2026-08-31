@@ -211,7 +211,7 @@ describe('a derived note says it is derived, to a person and to an agent', () =>
       from: 0,
       to: 9,
       quoted: '% =======',
-      body: 'a thought somebody had in the pane',
+      body: 'a thought somebody had in the container',
     })
     const out = rpc('notes', ON_CHAPTER)
     const line = out.text.split('\n').find((one) => out.text.includes('a thought somebody had')) ?? ''

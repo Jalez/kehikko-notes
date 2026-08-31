@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils.ts'
  *
  * `whitespace-nowrap` is in shadcn's base and it is deliberate at 220px: a badge
  * that wraps to two lines reads as two badges. It is also exactly the property
- * that has already set a 1187-pixel min-content floor under a 220-pixel pane
+ * that has already set a 1187-pixel min-content floor under a 220-pixel container
  * elsewhere in this workspace, because something long was put inside one.
  *
  * The rule that follows is not "remove the class". It is: **nothing variable
@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils.ts'
  * length is somebody else's decision — is drawn as prose, where `overflow-wrap:
  * anywhere` in `index.css` applies to it. `shrink-0` keeps the badge from being
  * squeezed by that prose; `max-w-full` is the belt to its braces, so that even a
- * word this file got wrong cannot push the row wider than the pane.
+ * word this file got wrong cannot push the row wider than the container.
  */
 const badgeVariants = cva(
   'inline-flex max-w-full shrink-0 items-center rounded border px-1.5 py-px text-[0.65rem] font-medium leading-4 whitespace-nowrap',

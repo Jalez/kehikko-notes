@@ -46,7 +46,7 @@ import { isAbsolute, resolve, sep } from 'node:path'
  *
  * A document is read whole in order to search it, so a bound is a bound on this
  * process's memory rather than hygiene. Four megabytes is far larger than any
- * `.tex` chapter and far smaller than something worth reading into a pane. Past
+ * `.tex` chapter and far smaller than something worth reading into a container. Past
  * it, the answer is `unverified` — which is true, and is the same word the
  * unreadable case already uses.
  */

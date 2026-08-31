@@ -10,7 +10,7 @@
  * declares in its manifest — a dependency invisible to the host, invisible to a
  * person reading either manifest, and one that breaks silently the day Paper is
  * not on the canvas. Notes would then hold notes whose existence depends on
- * whether somebody happened to place another pane.
+ * whether somebody happened to place another container.
  *
  * The protocol's whole position is that modules meet through the host or not at
  * all, and what the host relays is a passage: a path, a place, and a quote. So
@@ -97,14 +97,14 @@ function saysSomething(text: string): boolean {
 /**
  * A line that is a horizontal rule rather than a sentence.
  *
- * ## Why `saysSomething` was not enough, and the pane that proved it
+ * ## Why `saysSomething` was not enough, and the container that proved it
  *
  * That test is over a WHOLE comment run, so it drops a run that is nothing but
  * a rule and keeps a run that is a rule, four sentences, and another rule —
  * which is how every chapter of the thesis this was first run against opens.
  * The note that came out carried sixty equals signs on its first line, and a
  * sixty-character unbreakable string is exactly the min-content floor that made
- * a 220-pixel pane 1187 pixels wide in an earlier measurement. It read as noise
+ * a 220-pixel container 1187 pixels wide in an earlier measurement. It read as noise
  * as well: a rule is a thing the author drew in an editor to separate one part
  * of a file from another, and it says nothing about the paper.
  *

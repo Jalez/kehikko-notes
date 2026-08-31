@@ -12,8 +12,8 @@ import { normalise, type Note } from './shape.ts'
  * A note is anchored to a byte range. Somebody adds a paragraph forty lines
  * up, and every offset below it is now wrong by four hundred bytes. Nothing in
  * a pair of numbers can notice: the range still parses, still lands inside the
- * file, and still names a sentence. It names the WRONG sentence, and a pane
- * that draws it looks exactly like a pane that is right. That is the specific
+ * file, and still names a sentence. It names the WRONG sentence, and a container
+ * that draws it looks exactly like a container that is right. That is the specific
  * shape of dishonesty this whole codebase is arranged against, and offsets
  * alone cannot avoid it. Drift is not a risk here; it is a certainty on any
  * document somebody is still writing.

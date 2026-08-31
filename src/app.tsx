@@ -24,31 +24,31 @@ import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
  * So there is one screen and its scope is decided entirely by `context.passage`.
  * There is no picker here, no document list, no filter row — every one of those
  * would be a second answer to "what are we looking at" that could disagree with
- * the first. The pane follows.
+ * the first. The container follows.
  *
  * The one control that is not the reader pointing at something is `everything`,
  * and it exists because "nobody is pointing at anything" is an ordinary state
  * rather than a fault: a canvas with no paper on it, a reader who has closed
- * one, a project whose documents nothing is showing. A pane that could only
+ * one, a project whose documents nothing is showing. A container that could only
  * ever say so would be useless to somebody who wants to see what they wrote
  * yesterday, so there is one press that widens to the project. It is a press
- * and not a default, because a pane that silently showed everything would make
+ * and not a default, because a container that silently showed everything would make
  * the narrowing above it meaningless.
 
  * ## And there is now one press that points the other way
  *
  * Pressing a note asks the host to point the canvas at the passage that note is
- * about. It is the one thing here that is not this pane following somebody, and
+ * about. It is the one thing here that is not this container following somebody, and
  * it is still somebody being followed — a person pressed a note, and a note is
  * a passage written down. Everything about which offsets are sent, and why they
  * are the anchor's rather than the note's, is on `point` in `actions` below.
  *
  * ## Identity is printed only when nothing is framing this page
  *
- * A host prints the module's name in the pane header and hangs the manifest's
+ * A host prints the module's name in the container header and hangs the manifest's
  * `summary` off it as a tooltip. A page that also printed "Notes" at the top of
  * itself would be saying the name twice and spending a fixed strip of a
- * 340-pixel-tall pane on the repetition. Unframed there is no pane header, so
+ * 340-pixel-tall container on the repetition. Unframed there is no container header, so
  * the heading stays — see `NoProject`, which is the only screen an unframed
  * page can reach now that a project's notes live in that project.
  */
@@ -64,15 +64,15 @@ export function App() {
   const [showWithdrawn, setShowWithdrawn] = useState(false)
 
   const onGoto = useCallback<GotoHandler>((message, answer) => {
-    /* A `goto` may name an epic, a step, or a reference. This pane draws notes
+    /* A `goto` may name an epic, a step, or a reference. This container draws notes
        against a place in a document, and none of those three is one — saying so
        quickly is what gets the reader the host's fallback link instead of a
        twelve-second wait. */
     answer(
       false,
       message.ref
-        ? 'This pane shows notes anchored to passages of a document, so there is nothing here to walk to by reference.'
-        : 'This pane shows notes on a document, so there is nothing here to walk to by epic or step.',
+        ? 'This container shows notes anchored to passages of a document, so there is nothing here to walk to by reference.'
+        : 'This container shows notes on a document, so there is nothing here to walk to by epic or step.',
     )
   }, [])
 
@@ -92,7 +92,7 @@ export function App() {
    * A pointing reader clears the widened view.
    *
    * Without this, somebody who pressed "show every note" would stay widened
-   * while they highlighted a sentence, and the pane would go on showing the
+   * while they highlighted a sentence, and the container would go on showing the
    * project while the reader watched their own selection do nothing. The press
    * is an answer to "nothing is pointing"; a passage arriving is that question
    * being answered better.
@@ -227,7 +227,7 @@ export function App() {
        * recorded range would ask the paper to highlight whatever has since
        * drifted into those bytes — confidently, in a colour, with nothing on
        * screen able to say it is the wrong sentence. That is the exact failure
-       * `notes/anchor.ts` exists to make visible, and it would be this pane
+       * `notes/anchor.ts` exists to make visible, and it would be this container
        * causing it in another module.
        *
        * So `moved` points at where the words actually are, `exact` at where they
@@ -276,8 +276,8 @@ export function App() {
   const canWrite = !everything && scope.kind !== 'nowhere' && scope.kind !== 'everything'
 
   return (
-    <div ref={body} className="min-w-0 space-y-2 p-2 @sm/pane:p-3">
-      {/* What this pane is showing, in the words the door uses for the same
+    <div ref={body} className="min-w-0 space-y-2 p-2 @sm/container:p-3">
+      {/* What this container is showing, in the words the door uses for the same
           scope. Never "Notes (3)" — a count is not a scope, and a reader who
           cannot see what was narrowed cannot tell narrowing from a bug. */}
       <p data-testid="scope" className="min-w-0 text-xs font-medium">
@@ -319,7 +319,7 @@ export function App() {
           {/* The passage this note will be anchored to, shown before it is
               written. A reader has to be able to see what they are about to
               attach a thought to — and it is prose, not a badge, because it is
-              exactly the long unbroken string that widens a 220px pane. */}
+              exactly the long unbroken string that widens a 220px container. */}
           {passage?.quoted ? (
             <blockquote className="min-w-0 border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
               {passage.quoted}
@@ -334,7 +334,7 @@ export function App() {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
           />
-          <Button size="pane" type="submit" disabled={busy || !draft.trim()}>
+          <Button size="container" type="submit" disabled={busy || !draft.trim()}>
             write note
           </Button>
         </form>
@@ -399,7 +399,7 @@ export function App() {
             {"\u2019"}s build rather than its argument, and {looked.withdrawn.length === 1 ? 'is' : 'are'} no longer
             read as annotation.
           </p>
-          <Button size="pane" variant="ghost" onClick={() => setShowWithdrawn((was) => !was)}>
+          <Button size="container" variant="ghost" onClick={() => setShowWithdrawn((was) => !was)}>
             {showWithdrawn ? 'hide them' : 'show them'}
           </Button>
           {showWithdrawn ? (
@@ -420,11 +420,11 @@ export function App() {
       ) : null}
 
       <div className="flex min-w-0 flex-wrap gap-1">
-        <Button size="pane" variant="ghost" onClick={() => setWithResolved((was) => !was)}>
+        <Button size="container" variant="ghost" onClick={() => setWithResolved((was) => !was)}>
           {withResolved ? 'hide resolved' : 'show resolved'}
         </Button>
         {passage ? (
-          <Button size="pane" variant="ghost" onClick={() => setEverything((was) => !was)}>
+          <Button size="container" variant="ghost" onClick={() => setEverything((was) => !was)}>
             {everything ? 'follow the reader' : 'every note in this project'}
           </Button>
         ) : null}
