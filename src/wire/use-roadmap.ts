@@ -15,9 +15,9 @@ import { connect, type Host, type HostEvents } from './host.ts'
  *
  * Three facts and a theme. Which project the reader is in, where that project
  * is on disk, and where in a document they are pointing. Everything else the
- * pane shows comes from this app's own store, over its own `/api`, and nothing
- * here is asked of the host at all — this module declares no capabilities and
- * makes no requests. What it needs is what a context already carries.
+ * pane shows comes from this app's own store, over its own `/api`; the one
+ * thing ever ASKED of the host is `passage.set`, when a person presses a note.
+ * Everything this pane draws comes out of a context it was handed.
  *
  * ## The passage is handed on whole and never remembered
  *
@@ -65,17 +65,51 @@ export interface Roadmap {
   /**
    * Where the reader is pointing, or null.
    *
-   * Never what this page asked for — this page never asks. It declares no
-   * `passage:set`, has no control that would set one, and its whole job is to
-   * answer a question about where somebody else is already pointing.
+   * Where somebody is pointing, which is usually somebody else. This page can
+   * now point too — pressing a note does it — and the field is read the same way
+   * whoever set it: it is the host's answer about the canvas, not a memory of
+   * what this page asked for. A press that the host refuses changes nothing
+   * here, which is the correct outcome and the reason the two are not one
+   * variable.
    *
-   * Null today, always, on every host in this workspace: the module that shows
-   * papers does not call `passage.set` yet. That is not a broken state and the
-   * page must not draw it as one — see `Nowhere` in `src/view/screens.tsx`.
+   * Null whenever nothing on the canvas is showing a document. That is not a
+   * broken state and the page must not draw it as one — see `Nowhere` in
+   * `src/view/screens.tsx`.
    */
   passage: Passage | null
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
+  /**
+   * Point every pane on the canvas at a passage.
+   *
+   * ## This module asks for this, and it used to argue that it must not
+   *
+   * The manifest's essay called `passage:set` "the interesting omission": this
+   * app is the CONSUMER of a passage, and asking to set one would be "asking
+   * for permission to move every other pane on the canvas, in a module whose
+   * whole job is to answer a question about where somebody else is already
+   * pointing."
+   *
+   * That was right about the default and wrong about the exception, and the
+   * user found the exception in one sentence: "when you click on a note
+   * shouldn't it highlight and show what its target from the paper?" A note IS
+   * a passage — a path, a page, a range and the words — written down by somebody
+   * who was pointing at it once. Pressing one is a person pointing at it again,
+   * and this module holds the only record of where it was.
+   *
+   * So the rule stands with its exception named: this app never points on a
+   * context, on a load, on a filter or on anything it decided by itself. It
+   * points when somebody presses a note. The same file's argument against
+   * `view:navigate` had already said where this would land — "the honest
+   * version of that feature is a `passage.set` in the other direction, and it
+   * is not built yet". It is now.
+   *
+   * Fire and forget, and every refusal is swallowed. A host that never learned
+   * the method, or has not greeted this page yet, is not a fault in the note
+   * somebody just pressed and not something they can do anything about; what it
+   * must not do is throw a rejection out of a click handler.
+   */
+  point: (passage: Passage | null) => void
 }
 
 /**
@@ -181,9 +215,15 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
 
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
+  const point = useCallback((pointed: Passage | null) => {
+    const conversation = host.current
+    if (!conversation) return
+    void conversation.request('passage.set', { passage: pointed }).catch(() => {})
+  }, [])
+
   return useMemo(
-    () => ({ where, project, projectPath, passage, resize }),
-    [where, project, projectPath, passage, resize],
+    () => ({ where, project, projectPath, passage, resize, point }),
+    [where, project, projectPath, passage, resize, point],
   )
 }
 

@@ -41,6 +41,16 @@ export interface NoteActions {
   reply: (id: string, body: string) => void
   resolve: (id: string, done: boolean) => void
   reanchor: (one: Anchored) => void
+  /**
+   * Point every pane on the canvas at this note's passage.
+   *
+   * Handed in rather than done here, because what it takes is a host and this
+   * component has never seen one — the same split `app.tsx` keeps for every
+   * other write. Null when nothing is framing this page: there is nobody to
+   * tell, and a control that would silently do nothing is worse than one that
+   * is not drawn.
+   */
+  point: ((one: Anchored) => void) | null
   busy: boolean
 }
 
@@ -60,12 +70,36 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
         : `${note.path} · page ${note.page}`
       : `${note.path} · ${anchor.from}–${anchor.to}`
 
+  /**
+   * Pressing the row points the paper at it.
+   *
+   * The user asked for exactly this — "when you click on a note shouldn't it
+   * highlight and show what its target from the paper?" — so the target is the
+   * whole row and not a small control at the end of it. What that costs is a
+   * press that has to know it was not meant for one of the buttons inside the
+   * row, which is the `closest` below: a reply form, a resolve, a re-anchor and
+   * a textarea all live in here and all of them mean something else. The button
+   * in the action row is the same call, kept because a row you can only reach
+   * with a mouse is a row half the people using it cannot reach.
+   */
+  const press = () => actions.point?.(one)
+
   return (
     <li
       data-testid="note"
       data-anchor={anchor.state}
       data-note-id={note.id}
-      className="min-w-0 border-b border-border/60 py-2 last:border-b-0"
+      data-points={actions.point ? '1' : undefined}
+      onClick={(event) => {
+        if (!actions.point) return
+        /* Anything with its own meaning for a press keeps it. */
+        if ((event.target as HTMLElement).closest('button, a, textarea, input, form')) return
+        press()
+      }}
+      className={
+        'min-w-0 border-b border-border/60 py-2 last:border-b-0'
+        + (actions.point ? ' cursor-pointer hover:bg-muted/40' : '')
+      }
     >
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <Badge variant={verdict?.variant}>{verdict?.word}</Badge>
@@ -87,7 +121,7 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
         */}
         {source ? (
           <Badge variant="outline" data-source={source.kind}>
-            {source.present ? 'in the source' : 'gone from source'}
+            {source.withdrawn ? 'not an annotation' : source.present ? 'in the source' : 'gone from source'}
           </Badge>
         ) : null}
       </div>
@@ -96,13 +130,53 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
           widening the pane. Never in a badge. */}
       <p className="mt-1 min-w-0 text-[0.65rem] text-muted-foreground">{where}</p>
 
-      {note.quoted ? (
+      {/*
+        The quote, for a note somebody TYPED, and never for one lifted out of
+        the source.
+
+        For a typed note the two are different texts and both are worth having:
+        the quote is the passage, the body is what somebody said about it. For a
+        derived note they are one text — the body is the annotation with its `%`
+        markers or its `\todo{…}` wrapper taken off, and the quote is the same
+        words with the wrapper still on — so drawing both prints one comment
+        twice, once in italics and once not. That is what the user saw and said
+        so, and it is not a rendering slip: it is this row making its typed-note
+        argument about a kind of note the argument does not fit.
+
+        The BODY is the half that survives, and which half is not arbitrary. The
+        quote exists for `anchor.ts` — it is the exact slice of the file, kept so
+        the passage can be found again after an edit — and it is machinery. The
+        body is the author's sentence with the markup taken off, which is what
+        somebody reading a column of notes came to read. Nothing is lost: for a
+        derived note the quote's words are all in the body, and the rules that
+        were only ever a line drawn in a text editor are not.
+      */}
+      {note.quoted && !source ? (
         <blockquote className="mt-1 min-w-0 border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
           {note.quoted}
         </blockquote>
       ) : null}
 
       <p className="mt-1.5 min-w-0 text-sm">{note.body}</p>
+
+      {/* What this app used to make of the same annotation, when its own reading
+          of it changed. Under the body, because the two are read together, and
+          kept forever because the replies below were written against the old
+          words. See `Source.reread`. */}
+      {source?.reread ? (
+        <p data-testid="reread" className="mt-1 min-w-0 text-[0.7rem] text-muted-foreground">
+          This app read the same annotation differently before {source.reread.at.slice(0, 10)}. It used to show:{' '}
+          <span className="italic">{source.reread.was.slice(0, 200)}</span>
+        </p>
+      ) : null}
+
+      {/* Why this app stopped lifting it, in the words the store holds. Only
+          ever drawn where a reader has asked to see these; see `App`. */}
+      {source?.withdrawn ? (
+        <p data-testid="withdrawn-said" className="mt-1 min-w-0 text-[0.7rem] text-muted-foreground">
+          {source.withdrawn}
+        </p>
+      ) : null}
 
       <p className="mt-1 min-w-0 text-[0.65rem] text-muted-foreground">
         {note.by}
@@ -144,6 +218,20 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
         {anchor.state === 'moved' ? (
           <Button size="pane" variant="outline" disabled={actions.busy} onClick={() => actions.reanchor(one)}>
             re-anchor
+          </Button>
+        ) : null}
+        {/*
+         * The same press as the row, reachable from a keyboard.
+         *
+         * Its words change with the verdict because what it can honestly do
+         * changes with the verdict: an adrift note has no range left to point
+         * at, so the paper is pointed at the DOCUMENT and the button says the
+         * smaller thing rather than promising a highlight that would land on
+         * whatever text now sits at offsets nobody has verified.
+         */}
+        {actions.point ? (
+          <Button size="pane" variant="ghost" onClick={press}>
+            {anchor.from === null ? 'open in the paper' : 'show in the paper'}
           </Button>
         ) : null}
       </div>

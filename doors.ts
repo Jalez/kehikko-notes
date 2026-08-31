@@ -443,6 +443,20 @@ function lookText(looked: Looked): string {
       + 'asked about.',
     )
   }
+  /* Said as a count and a reason rather than as rows. These are notes this app
+     lifted under a rule it no longer applies, and an agent reading them as
+     outstanding work on the paper would be acting on a font setup. Nothing is
+     deleted and they are still addressable by id, which is why the sentence
+     names the number rather than pretending they are not there. */
+  if (narrowed.withdrawn.length) {
+    const one = narrowed.withdrawn.length === 1
+    head.push(
+      '',
+      `${narrowed.withdrawn.length} note${one ? ' was' : 's were'} lifted out of this file under a rule this app no `
+      + `longer applies, so ${one ? 'it is' : 'they are'} not listed above. `
+      + (sourceOf(narrowed.withdrawn[0]!.note)?.withdrawn ?? ''),
+    )
+  }
   if (!looked.verified) {
     head.push(
       '',
@@ -667,6 +681,7 @@ export function answer(
       shown: looked.narrowed.shown,
       adrift: looked.narrowed.adrift,
       elsewhere: looked.narrowed.elsewhere,
+      withdrawn: looked.narrowed.withdrawn,
       verified: looked.verified,
       trouble: looked.trouble,
     })

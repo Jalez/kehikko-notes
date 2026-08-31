@@ -152,6 +152,57 @@ export interface Source {
   seenAt: string
   /** When the file was last read and it was NOT, or null while it still is. */
   goneAt: string | null
+  /**
+   * Why this app stopped lifting it, when the reason was THIS APP and not the
+   * author. Null for every note whose annotation is still there, and for every
+   * one whose annotation the author removed.
+   *
+   * ## Two ways a note can stop being present, and they are not the same news
+   *
+   * `present: false` already says "the last read did not find it". Until now
+   * that could only mean one thing — somebody edited the file — and the whole
+   * design leans on that reading: a `\todo{}` that left the source most likely
+   * left because the author DID it, and the conversation about how is the
+   * record this module refuses to lose.
+   *
+   * A rule change is the other way, and reading it as the first would be a lie
+   * about somebody's file. When this app decided that the preamble is build
+   * rather than annotation, ten notes in this store stopped being lifted with
+   * nobody having touched a byte of `main.tex`. Marking them "gone from source"
+   * and saying nothing else would tell a reader that the author had removed a
+   * build header they are still looking at.
+   *
+   * So the sentence is stored, on the note, in the words a person reads — a
+   * SENTENCE and not a code, for the same reason every refusal in `keep.ts` is
+   * one: whoever meets it, a reader or an agent at the door, has to be told what
+   * happened, and a flag would need a lookup table living somewhere else.
+   *
+   * Nothing is deleted, here least of all. A withdrawn note keeps its id, its
+   * words, its replies and its resolution; it is taken out of the ordinary list
+   * and put behind one press, which is what "not silent" means when the honest
+   * answer is that these were never annotations about the paper.
+   */
+  withdrawn?: string | null
+  /**
+   * When this app's own READING of the same annotation changed, and what it
+   * used to say.
+   *
+   * The key is a hash of the annotation's words, so a change in how those words
+   * are extracted is a change of key — and a change of key is, by the rule in
+   * `ingest()`, a different note. That rule is right when the AUTHOR reworded
+   * something: the old note carries replies about what it actually said, and
+   * forking loses nothing. It is wrong when the words did not change and this
+   * program's reading of them did, which is what stripping rule lines out of a
+   * comment run did to seven notes in this store at once. A fork there would be
+   * this app duplicating somebody's notes to announce its own bug fix.
+   *
+   * So a re-read that lands on the same construct — same kind, same offsets,
+   * same file — adopts the note that is already there and records this. The old
+   * text is kept because it is what the replies underneath were written
+   * against, and a body that changed with nothing saying so is exactly the
+   * silent rewrite this module spends its length refusing.
+   */
+  reread?: { at: string; was: string } | null
 }
 
 export interface Note {

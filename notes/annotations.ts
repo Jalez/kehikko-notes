@@ -95,6 +95,49 @@ function saysSomething(text: string): boolean {
 }
 
 /**
+ * A line that is a horizontal rule rather than a sentence.
+ *
+ * ## Why `saysSomething` was not enough, and the pane that proved it
+ *
+ * That test is over a WHOLE comment run, so it drops a run that is nothing but
+ * a rule and keeps a run that is a rule, four sentences, and another rule —
+ * which is how every chapter of the thesis this was first run against opens.
+ * The note that came out carried sixty equals signs on its first line, and a
+ * sixty-character unbreakable string is exactly the min-content floor that made
+ * a 220-pixel pane 1187 pixels wide in an earlier measurement. It read as noise
+ * as well: a rule is a thing the author drew in an editor to separate one part
+ * of a file from another, and it says nothing about the paper.
+ *
+ * So rules are dropped LINE BY LINE and the sentences between them are kept.
+ * The test is deliberately narrow — four or more of one punctuation character
+ * and nothing else — because anything looser starts eating prose: `---` is an
+ * em dash somebody typed and `##` is a heading in a comment written by
+ * somebody with Markdown in their fingers, and both are things the author said.
+ *
+ * The `from`/`to` of the annotation are NOT changed by this, and neither is
+ * `source`. Those describe where the construct sits in the file and what is
+ * exactly there, which is what `anchor.ts` re-finds the passage by. Only the
+ * readable `text` — the note's body — has the rules taken out of it.
+ */
+function isRule(line: string): boolean {
+  return /^([=\-_*~#+.])\1{3,}$/.test(line.trim())
+}
+
+/** `\begin{document}`, which is where a `.tex` file stops being a build and starts being a paper. */
+const DOCUMENT_BEGINS = '\\begin{document}'
+
+/**
+ * Where the document proper starts, in UTF-16 units, or 0 when it never does.
+ *
+ * A chapter file has no `\begin{document}` at all — it is `\include`d into one —
+ * so 0 is the right answer for it and the rule below then excludes nothing.
+ */
+export function bodyBegins(source: string): number {
+  const at = source.indexOf(DOCUMENT_BEGINS)
+  return at === -1 ? 0 : at + DOCUMENT_BEGINS.length
+}
+
+/**
  * Every annotation in one `.tex` file, in document order.
  *
  * Comment runs first because they are found by scanning lines, then macros by
@@ -103,13 +146,60 @@ function saysSomething(text: string): boolean {
  * `ingest.ts`, which needs a stable ordinal and nothing else positional.
  */
 export function annotationsIn(source: string): Annotation[] {
+  return readAnnotations(source).kept
+}
+
+/**
+ * What one file holds, split into what is lifted and what is deliberately not.
+ *
+ * ## The preamble is not annotation, and the two modules had disagreed about it
+ *
+ * Everything before `\begin{document}` is the build: which class the file
+ * stands in for, which fonts are loaded, how `\listoftodos` was made to survive
+ * sentence-length notes, and — in the thesis this was first run against — the
+ * four `\newcommand`s that DEFINE `\missing`, `\alt`, `\thought` and
+ * `\attention` in terms of `\todo`. Every one of those was arriving here as an
+ * annotation. The first was a five-line build header lifted as a note about
+ * bytes 0–515 of `main.tex`; the last four were macro bodies whose entire text
+ * is `\textbf{MISSING:} #1`, which is a definition rather than a thing anybody
+ * wrote about the argument.
+ *
+ * Paper had already decided this and said so in `reader/pages.ts`: `preamble`
+ * is folded into one block and never drawn, with a test asserting that
+ * `tauthesis` and `graphicspath` never reach a shown block. A module lifting
+ * what the module beside it hides is two programs disagreeing about what the
+ * document IS, in front of the same reader.
+ *
+ * So the preamble is not read as annotation. What that loses is named rather
+ * than dropped quietly: the build header and the `\l@todo` workaround are real
+ * explanations and worth having — in the `.tex`, where the person who has to
+ * change the build will be, which is where they already are. They are not
+ * annotations about the prose, and mixing them in with the ones that are is
+ * exactly the complaint this answers.
+ *
+ * ## And the ones that go are handed back rather than forgotten
+ *
+ * `withdrawn` is the second half and it exists because this program's rules
+ * changed underneath a store that already held notes. A note lifted out of the
+ * preamble last week is still in the store; ingestion never deletes; so the
+ * store has to be told which of its notes this app no longer reads as
+ * annotation, by the same reading that decided it. See `ingest()` in `keep.ts`.
+ */
+export function readAnnotations(source: string): { kept: Annotation[]; withdrawn: Annotation[] } {
   const found = [...commentRuns(source), ...todoMacros(source)].sort((a, b) => a.from - b.from)
   const bytes = byteOffsets(source)
   /* Positions converted at the boundary, once, so that everything above this
      line can go on working in the units JavaScript actually indexes strings in.
      See `byteOffsets`. The `source` slice is taken with the ORIGINAL indices,
      because it is a slice of this same string. */
-  return found.map((one) => ({ ...one, from: bytes[one.from]!, to: bytes[one.to]! }))
+  const body = bodyBegins(source)
+  const kept: Annotation[] = []
+  const withdrawn: Annotation[] = []
+  for (const one of found) {
+    const placed = { ...one, from: bytes[one.from]!, to: bytes[one.to]! }
+    ;(one.from < body ? withdrawn : kept).push(placed)
+  }
+  return { kept, withdrawn }
 }
 
 /**
@@ -176,7 +266,14 @@ function commentRuns(source: string): Annotation[] {
 
   const flush = () => {
     if (runFrom < 0) return
-    const text = held.join('\n').trim()
+    /* The rules taken out and the sentences between them kept — see `isRule`.
+       Done on the way into the text and never to `from`, `to` or `source`,
+       which go on describing the construct exactly as it sits in the file. */
+    const text = held
+      .filter((line) => !isRule(line))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
     if (saysSomething(text)) {
       out.push({ kind: 'comment', text, from: runFrom, to: runTo, source: source.slice(runFrom, runTo) })
     }

@@ -154,15 +154,32 @@ export type Op =
       projectPath: string | null
       path: string
       by: string
-      found: {
-        key: string
-        kind: 'todo' | 'comment'
-        body: string
-        from: number
-        to: number
-        quoted: string
-      }[]
+      found: Annotated[]
+      /**
+       * What the same read found and deliberately did not lift.
+       *
+       * The preamble, today, and whatever this app next decides is build rather
+       * than annotation. It is sent because ingestion is the only thing that can
+       * reconcile it: a note lifted under the old rules is already in the store,
+       * nothing here deletes, and the store has to be told by the same reading
+       * that stopped lifting it — otherwise the note sits there claiming to be
+       * an annotation about the paper with nothing anywhere able to say
+       * otherwise.
+       *
+       * It never creates anything. It can only mark what is already here.
+       */
+      withdrawn?: Annotated[]
     }
+
+/** One annotation, as a read of a file hands it to the store. */
+export interface Annotated {
+  key: string
+  kind: 'todo' | 'comment'
+  body: string
+  from: number
+  to: number
+  quoted: string
+}
 
 export type Outcome = { ok: true; said: string; id: string } | { ok: false; error: string }
 
@@ -430,7 +447,54 @@ function ingest(store: Store, op: Extract<Op, { op: 'ingest' }>, by: string): Ou
   let added = 0
   let moved = 0
   let revived = 0
-  const seen = new Set<string>()
+  let reread = 0
+  let retired = 0
+  /**
+   * The stored notes this read has accounted for.
+   *
+   * Notes rather than keys, because a note can now be recognised by something
+   * other than its key — see `sameConstruct` — and a set of keys could not say
+   * that the note behind an adopted one is spoken for.
+   */
+  const claimed = new Set<Note>()
+
+  /**
+   * The stored note an annotation is, when its key does not say so.
+   *
+   * ## Why there has to be a second way to recognise a note at all
+   *
+   * The key is a hash of the annotation's WORDS, and that is the right identity
+   * for the thing it was designed against: an annotation that MOVED is the note
+   * it already was, and only one whose author reworded it is a new one. Both of
+   * those follow from hashing the words, and both are right.
+   *
+   * What the key cannot survive is a change in how this app EXTRACTS those
+   * words. Stripping rule lines out of a comment run changed the text of seven
+   * notes in the store it was first run against, without a byte of any file
+   * changing. Under the key rule alone every one of them would have forked: a
+   * new note beside an old one marked gone from a source it never left, with
+   * the replies on the wrong side of the pair. That is this program announcing
+   * its own bug fix by duplicating somebody's notes.
+   *
+   * So: same construct, and the same SOURCE TEXT under it. `quoted` is the
+   * exact slice of the file between the annotation's two ends, wrapper
+   * included, and it is the field that tells the two cases apart. A rule change
+   * leaves it byte-identical — the file did not move and nothing in it changed,
+   * only what this app read out of those bytes. An author rewording a
+   * `\todo{}` changes it, every time, because the words are inside the slice.
+   *
+   * That distinction is not decorative. `\todo{cite Lamport here}` becoming
+   * `\todo{cite Fischer here}` is the same length and sits at the same offsets,
+   * so a rule that matched on position would adopt it, silently replace the
+   * body, and leave the reply that says "no, this is Fischer" attached to a
+   * note that now says Fischer. There is a test for exactly that, and it is the
+   * reason this compares the slice rather than the place.
+   *
+   * A note already claimed is never a candidate, so nothing is adopted away
+   * from the annotation it actually is.
+   */
+  const adopt = (kind: 'todo' | 'comment', quoted: string): Note | undefined =>
+    mine.find((one) => !claimed.has(one) && one.source?.kind === kind && one.quoted === quoted)
 
   for (const found of op.found) {
     const sourceKey = str(found.key, MAX_PATH)
@@ -440,10 +504,10 @@ function ingest(store: Store, op: Extract<Op, { op: 'ingest' }>, by: string): Ou
        slice will not fit the quote bound cannot be re-anchored later — see the
        essay on `MAX_QUOTE`. Both are skipped rather than stored half-formed. */
     if (!sourceKey || !body || !quoted) continue
-    seen.add(sourceKey)
 
     const already = byKey.get(sourceKey)
-    if (already) {
+    if (already && !claimed.has(already)) {
+      claimed.add(already)
       /* Only the two things ingestion is the authority on. The body, the
          replies, the resolution and the byline are somebody else's. */
       if (already.from !== found.from || already.to !== found.to || already.quoted !== quoted) moved++
@@ -460,7 +524,47 @@ function ingest(store: Store, op: Extract<Op, { op: 'ingest' }>, by: string): Ou
       already.to = found.to
       already.quoted = quoted
       already.fingerprint = fingerprint(quoted)
-      already.source = { key: sourceKey, kind: found.kind, present: true, seenAt: stamp, goneAt: null }
+      already.source = {
+        key: sourceKey,
+        kind: found.kind,
+        present: true,
+        seenAt: stamp,
+        goneAt: null,
+        /* Carried, not cleared. A note that was re-read once is a note whose
+           body this app changed, and that stays on the record for as long as
+           the note does. `withdrawn` is cleared, because an annotation that is
+           being lifted again is not one this app is refusing to lift. */
+        withdrawn: null,
+        reread: already.source?.reread ?? null,
+      }
+      continue
+    }
+
+    /* The same construct, under a key this app now spells differently. */
+    const same = adopt(found.kind, quoted)
+    if (same) {
+      claimed.add(same)
+      const was = same.body
+      if (same.source && !same.source.present) revived++
+      if (was !== body) {
+        reread++
+        same.body = body
+      }
+      same.quoted = quoted
+      same.fingerprint = fingerprint(quoted)
+      same.source = {
+        key: sourceKey,
+        kind: found.kind,
+        present: true,
+        seenAt: stamp,
+        goneAt: null,
+        withdrawn: null,
+        /* The first re-read is the one worth keeping. A second one recording
+           what the first re-read said would replace the AUTHOR's words with
+           this app's previous rendering of them, which is the opposite of the
+           point. */
+        reread: same.source?.reread ?? (was === body ? null : { at: stamp, was }),
+      }
       continue
     }
 
@@ -487,15 +591,35 @@ function ingest(store: Store, op: Extract<Op, { op: 'ingest' }>, by: string): Ou
       resolvedAt: null,
       resolvedBy: null,
       replies: [],
-      source: { key: sourceKey, kind: found.kind, present: true, seenAt: stamp, goneAt: null },
+      source: { key: sourceKey, kind: found.kind, present: true, seenAt: stamp, goneAt: null, withdrawn: null, reread: null },
     })
     added++
+  }
+
+  /*
+   * What the same read saw and would no longer call an annotation.
+   *
+   * Matched the same two ways a kept annotation is — by key first, then by the
+   * construct's own place — and it can only ever MARK. A withdrawn annotation
+   * never becomes a note, so a store that has never seen one of these gets
+   * nothing at all from this loop, which is what makes turning a rule on safe
+   * for somebody who was not here when it was off.
+   */
+  for (const found of op.withdrawn ?? []) {
+    const sourceKey = str(found.key, MAX_PATH)
+    const already = byKey.get(sourceKey)
+    const note = already && !claimed.has(already) ? already : adopt(found.kind, str(found.quoted, MAX_QUOTE))
+    if (!note?.source) continue
+    claimed.add(note)
+    if (note.source.withdrawn) continue
+    note.source = { ...note.source, present: false, goneAt: note.source.goneAt ?? stamp, withdrawn: WITHDRAWN }
+    retired++
   }
 
   let gone = 0
   for (const note of mine) {
     const source = note.source
-    if (!source || seen.has(source.key)) continue
+    if (!source || claimed.has(note)) continue
     /* Marked once. A note already known to be gone keeps the date it went,
        because "when did this stop being in the file" is the useful fact and
        re-stamping it on every read would turn it into "when was this file last
@@ -505,12 +629,30 @@ function ingest(store: Store, op: Extract<Op, { op: 'ingest' }>, by: string): Ou
     gone++
   }
 
-  if (added || gone || moved || revived) write(store)
+  if (added || gone || moved || revived || reread || retired) write(store)
   return {
     ok: true,
     said:
       `Read ${op.found.length} in ${path}: ${added} new, ${moved} re-anchored, ${gone} no longer in the source`
-      + `${revived ? `, ${revived} back in it` : ''}.`,
+      + `${revived ? `, ${revived} back in it` : ''}`
+      + `${reread ? `, ${reread} re-read from the source under this app’s current rules` : ''}`
+      + `${retired ? `, ${retired} withdrawn as part of the file’s build rather than annotation` : ''}.`,
     id: '',
   }
 }
+
+/**
+ * The sentence a withdrawn note carries, in one place.
+ *
+ * One string rather than one per rule, because there is one rule today and a
+ * second one would want its own words — at which point it comes in as an
+ * argument rather than being pasted. It says what happened, who did it, and
+ * what is still true, because the reader meeting it is looking at a note about
+ * a file they have open and can see is unchanged.
+ */
+const WITHDRAWN =
+  'This app no longer reads the part of the file before \\begin{document} as annotation — it is the build: the '
+  + 'document class, the fonts, and the macros that define the note commands themselves. The paper module folds the '
+  + 'same region away and never draws it, and the two of them disagreeing about what the document is was the reason '
+  + 'this changed. Nothing was removed from the file and nothing here was deleted: the note, its replies and its '
+  + 'resolution are all still on this record.'

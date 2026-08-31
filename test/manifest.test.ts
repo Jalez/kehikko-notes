@@ -28,12 +28,22 @@ describe('a host can read this', () => {
 })
 
 describe('what it asks for', () => {
-  test('nothing, and that is the point — this module consumes a context and asks no questions', () => {
-    expect(MANIFEST.declares.uses).toEqual([])
+  test('one capability, and only the one a press on a note actually needs', () => {
+    expect(MANIFEST.declares.uses).toEqual(['passage:set'])
   })
 
-  test('passage:set is NOT declared: this app reads a passage and never sets one', () => {
-    expect(MANIFEST.declares.uses).not.toContain('passage:set')
+  test('passage:set IS declared, because pressing a note points the canvas at it', () => {
+    /* This assertion was the opposite of itself and the essay in `manifest.ts`
+       says why it turned over: a note IS a passage, and a person pressing one
+       is a person pointing at it again. What the old argument keeps is the
+       bound — nothing here points on a context, a load or a filter — and that
+       bound lives in `wire/use-roadmap.ts` and `app.tsx`, not in a manifest. */
+    expect(MANIFEST.declares.uses).toContain('passage:set')
+  })
+
+  test('selection:set is still NOT declared: the canvas selection carries tracker refs', () => {
+    /* A byte range posted into it would be handed to Journeys and References as
+       though it were an issue, and each would fail to find it silently. */
     expect(MANIFEST.declares.uses).not.toContain('selection:set')
   })
 

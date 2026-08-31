@@ -14,14 +14,28 @@ export const VERSION = '1.0.0'
  *
  * ## What it declares, and the longer list of what it does not
  *
- * - **`passage:set` — NOT declared, and this is the interesting omission.**
- *   This app is the CONSUMER of a passage, not a producer of one. It reads
- *   `context.passage` to decide what it is showing; it never asks the host to
- *   change what anybody is pointing at. Declaring the capability would be asking
- *   for permission to move every other pane on the canvas, in a module whose
- *   whole job is to answer a question about where somebody else is already
- *   pointing. The module that points is the one showing the document — Paper —
- *   and that is where the declaration belongs.
+ * - **`passage:set` — declared, and it is the only capability this app asks
+ *   for.** This file used to call it "the interesting omission" and argue that
+ *   a consumer of passages must never produce one: declaring it would be
+ *   "asking for permission to move every other pane on the canvas, in a module
+ *   whose whole job is to answer a question about where somebody else is
+ *   already pointing."
+ *
+ *   That argument was right about the default and had not met its exception.
+ *   The user supplied it in one sentence — "when you click on a note shouldn't
+ *   it highlight and show what its target from the paper?" — and it is a
+ *   sentence this module cannot answer no to. A note IS a passage: a path, a
+ *   page, a range and the words that were there. Somebody pressing one is a
+ *   person pointing at it again, and this app holds the only record of where it
+ *   is. Refusing would leave a pane that can tell you a note exists on
+ *   `chapters/3_methods.tex` at bytes 8140–8402 and cannot show you the
+ *   sentence.
+ *
+ *   What the old argument keeps is the bound, and the bound is narrow: nothing
+ *   here points on a context, on a load, on a filter, or on any conclusion this
+ *   app reached by itself. It points when a person presses a note, with the
+ *   offsets its ANCHOR just verified rather than the ones the note was written
+ *   with, and never otherwise. See the note on `point` in `wire/use-roadmap.ts`.
  *
  *   There is no capability for CONSUMING context, and there should not be: a
  *   context is broadcast to every framed module, and a list of who may read one
@@ -34,13 +48,14 @@ export const VERSION = '1.0.0'
  *   reading.
  * - **`stage:report` — not declared.** Saying where work is belongs to whoever
  *   is doing it. A note has no opinion about that.
- * - **`view:navigate` — not declared, and it was the closest call in this
- *   file.** Walking a reader to a note's passage is exactly what somebody would
- *   want from a row here, and `view.goto` cannot do it: it names an epic, a
- *   step or a tracker ref, and a note points at a byte range in a `.tex`. So
- *   the capability would be declared for a call that could never carry the ask.
- *   The honest version of that feature is a `passage.set` in the other
- *   direction, and it is not built yet, so nothing is declared for it.
+ * - **`view:navigate` — still not declared, and this is now settled rather
+ *   than deferred.** Walking a reader to a note's passage is exactly what
+ *   somebody wants from a row here, and `view.goto` cannot do it: it names an
+ *   epic, a step or a tracker ref, and a note points at a byte range in a
+ *   `.tex`. This file already said what the honest version was — "a
+ *   `passage.set` in the other direction, and it is not built yet" — and that
+ *   is what got built. The capability that could not carry the ask is not
+ *   declared for the feature it could not have delivered.
  * - **`events:emit` — not declared, and `emits` is empty.** The sibling module
  *   that keeps checklists announces agents coming through its MCP door, on the
  *   argument that a notification is for what you would otherwise miss. That
@@ -151,7 +166,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   extensions: { emits: [], consumes: [] },
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: [],
+    uses: ['passage:set'],
     storage: true,
     prompt: false,
   },

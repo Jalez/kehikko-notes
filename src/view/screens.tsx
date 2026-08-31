@@ -42,11 +42,12 @@ export function Unhosted({ onEverything }: { onEverything: () => void }) {
  *
  * ## This is the ordinary state today, and it must not look like a fault
  *
- * `context.passage` is null on every host in this workspace right now: the
- * module that shows papers does not call `passage.set` yet. A pane that drew a
- * spinner, or an error, or an empty list with no explanation would be
- * describing a bug that does not exist — and would go on describing it after
- * the wiring lands, for every reader who has no document open.
+ * `context.passage` is null whenever nothing on the canvas is showing a
+ * document, which is a canvas somebody has just opened, a reader who closed
+ * what they had, or a project whose papers nobody has placed. A pane that drew
+ * a spinner, or an error, or an empty list with no explanation would be
+ * describing a bug that does not exist, for every reader with no document
+ * open.
  *
  * So it says exactly what is true: notes are about places in documents, nobody
  * has said where anybody is standing, and here is the whole project instead if

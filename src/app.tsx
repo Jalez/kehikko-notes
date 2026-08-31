@@ -27,13 +27,21 @@ import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
  * the first. The pane follows.
  *
  * The one control that is not the reader pointing at something is `everything`,
- * and it exists because the honest state of this workspace today is that
- * nothing points: the module that shows papers does not call `passage.set` yet.
- * A pane that could only ever say "nobody is pointing at anything" would be
- * useless for the whole period between these two repositories landing, so there
- * is one press that widens to the project. It is a press and not a default,
- * because a pane that silently showed everything would make the narrowing above
- * it meaningless.
+ * and it exists because "nobody is pointing at anything" is an ordinary state
+ * rather than a fault: a canvas with no paper on it, a reader who has closed
+ * one, a project whose documents nothing is showing. A pane that could only
+ * ever say so would be useless to somebody who wants to see what they wrote
+ * yesterday, so there is one press that widens to the project. It is a press
+ * and not a default, because a pane that silently showed everything would make
+ * the narrowing above it meaningless.
+
+ * ## And there is now one press that points the other way
+ *
+ * Pressing a note asks the host to point the canvas at the passage that note is
+ * about. It is the one thing here that is not this pane following somebody, and
+ * it is still somebody being followed — a person pressed a note, and a note is
+ * a passage written down. Everything about which offsets are sent, and why they
+ * are the anchor's rather than the note's, is on `point` in `actions` below.
  *
  * ## Identity is printed only when nothing is framing this page
  *
@@ -51,6 +59,8 @@ export function App() {
   const [withResolved, setWithResolved] = useState(false)
   const [draft, setDraft] = useState('')
   const [round, setRound] = useState(0)
+  /** Whether the notes this app has stopped lifting are on screen. One press. */
+  const [showWithdrawn, setShowWithdrawn] = useState(false)
 
   const onGoto = useCallback<GotoHandler>((message, answer) => {
     /* A `goto` may name an epic, a step, or a reference. This pane draws notes
@@ -65,7 +75,7 @@ export function App() {
     )
   }, [])
 
-  const { where, project, projectPath, passage, resize } = useRoadmap(ID, onGoto)
+  const { where, project, projectPath, passage, resize, point } = useRoadmap(ID, onGoto)
 
   /**
    * The scope, computed from the passage by the same function the server uses.
@@ -170,9 +180,44 @@ export function App() {
         if (one.anchor.from === null || one.anchor.to === null) return
         void write({ op: 'reanchor', id: one.note.id, from: one.anchor.from, to: one.anchor.to, quoted: one.note.quoted })
       },
+      /*
+       * Pressing a note points the canvas at the passage it is about.
+       *
+       * ## The offsets are the ANCHOR's, and that is the whole of the care here
+       *
+       * A note holds where its passage was when it was written. The anchor holds
+       * where those words are NOW, checked against the file a moment ago, and
+       * the two differ on any document somebody is still editing. Sending the
+       * recorded range would ask the paper to highlight whatever has since
+       * drifted into those bytes — confidently, in a colour, with nothing on
+       * screen able to say it is the wrong sentence. That is the exact failure
+       * `notes/anchor.ts` exists to make visible, and it would be this pane
+       * causing it in another module.
+       *
+       * So `moved` points at where the words actually are, `exact` at where they
+       * always were, and `adrift` — where this app could not find them at all —
+       * points at the DOCUMENT with no range, which is the honest amount of
+       * precision left. `unranged` and `unverified` fall out of the same
+       * expression for the same reason: the anchor is what this app is willing
+       * to claim, and it is the only thing sent.
+       *
+       * The quote goes with it, always, because a consumer comparing the words
+       * against the file can see a rotten range for itself — which is the
+       * protocol's own argument for the field.
+       */
+      point: where === 'hosted'
+        ? (one: Anchored) =>
+            point({
+              path: one.note.path,
+              page: one.note.page,
+              from: one.anchor.from,
+              to: one.anchor.to,
+              quoted: one.note.quoted.slice(0, 2000),
+            })
+        : null,
       busy,
     }),
-    [write, busy],
+    [write, busy, point, where],
   )
 
   /* How tall this page would like to be, asked for whenever what it draws
@@ -291,6 +336,42 @@ export function App() {
               <NoteRow key={one.note.id} one={one} actions={actions} />
             ))}
           </ul>
+        </section>
+      ) : null}
+
+      {/*
+       * The notes this app lifted under a rule it no longer applies.
+       *
+       * A line and a press, never rows by default. These are the ten notes that
+       * came out of `main.tex`'s preamble — the build header, the font setup,
+       * the four macros that DEFINE the note commands — and the user's complaint
+       * was precisely that they were "mixed in with annotations about the
+       * prose". Taking them out of the list is the fix; taking them out of the
+       * ANSWER would be the filter `notes/scope.ts` spends a paragraph refusing,
+       * because somebody who replied to one would find their reply gone with
+       * nothing anywhere saying why.
+       *
+       * So: out of the way, one press from being read, and each one carries the
+       * sentence saying what happened to it. Nothing was deleted and nothing
+       * here could delete it.
+       */}
+      {looked?.withdrawn.length ? (
+        <section data-testid="withdrawn-group" className="min-w-0 space-y-1">
+          <p className="min-w-0 text-[0.7rem] text-muted-foreground">
+            {looked.withdrawn.length} note{looked.withdrawn.length === 1 ? '' : 's'} here came out of this file
+            {"\u2019"}s build rather than its argument, and {looked.withdrawn.length === 1 ? 'is' : 'are'} no longer
+            read as annotation.
+          </p>
+          <Button size="pane" variant="ghost" onClick={() => setShowWithdrawn((was) => !was)}>
+            {showWithdrawn ? 'hide them' : 'show them'}
+          </Button>
+          {showWithdrawn ? (
+            <ul className="min-w-0">
+              {looked.withdrawn.map((one) => (
+                <NoteRow key={one.note.id} one={one} actions={actions} />
+              ))}
+            </ul>
+          ) : null}
         </section>
       ) : null}
 

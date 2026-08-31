@@ -18,7 +18,7 @@ import { Nowhere, Unhosted } from '../src/view/screens.tsx'
 
 afterEach(cleanup)
 
-const actions = { reply: () => {}, resolve: () => {}, reanchor: () => {}, busy: false }
+const actions = { reply: () => {}, resolve: () => {}, reanchor: () => {}, point: null, busy: false }
 
 function note(over: Partial<Note> = {}): Note {
   return {

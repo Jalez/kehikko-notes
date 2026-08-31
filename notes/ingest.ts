@@ -1,4 +1,4 @@
-import { annotationsIn } from './annotations.ts'
+import { readAnnotations } from './annotations.ts'
 import { change } from './keep.ts'
 import { fingerprint } from './shape.ts'
 
@@ -94,27 +94,35 @@ export function ingestSource(
 
   if (!force && readAlready.get(where.path) === source.length) return { found: 0, said: null }
 
-  const found = annotationsIn(source)
+  const { kept, withdrawn } = readAnnotations(source)
+  /* Ordinals are counted over EVERYTHING the scanner found, kept and withdrawn
+     together, so that "the third identical one" means the same thing whether or
+     not the file has a preamble — and so that excluding the preamble cannot
+     silently renumber the notes in the body of a document. */
+  const all = [...kept, ...withdrawn].sort((a, b) => a.from - b.from)
+  const at = new Map(all.map((one, index) => [one, index]))
+  const keyed = (one: (typeof all)[number]) => ({
+    key: keyFor(where.path, one.kind, one.text, ordinal(all, at.get(one) ?? 0)),
+    kind: one.kind,
+    body: one.text,
+    from: one.from,
+    to: one.to,
+    quoted: one.source,
+  })
   const outcome = change({
     op: 'ingest',
     project: where.project,
     projectPath: where.projectPath,
     path: where.path,
     by,
-    found: found.map((one, index) => ({
-      key: keyFor(where.path, one.kind, one.text, ordinal(found, index)),
-      kind: one.kind,
-      body: one.text,
-      from: one.from,
-      to: one.to,
-      quoted: one.source,
-    })),
+    found: kept.map(keyed),
+    withdrawn: withdrawn.map(keyed),
   })
 
   /* Remembered only on success. A read that could not be stored — a store file
      somebody has mangled — must be retried rather than assumed done. */
   if (outcome.ok) readAlready.set(where.path, source.length)
-  return { found: found.length, said: outcome.ok ? outcome.said : outcome.error }
+  return { found: kept.length, said: outcome.ok ? outcome.said : outcome.error }
 }
 
 /**

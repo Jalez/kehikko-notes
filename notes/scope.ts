@@ -1,4 +1,5 @@
 import type { Anchored } from './anchor.ts'
+import { sourceOf } from './shape.ts'
 
 /**
  * How much of the store one screen is about, and the ladder that decides it.
@@ -116,6 +117,35 @@ export interface Narrowed {
    * whole difference between a scope and a filter nobody mentioned.
    */
   elsewhere: number
+  /**
+   * Notes this app lifted under rules it no longer applies.
+   *
+   * ## Why they are a third pile rather than filtered away or left in place
+   *
+   * These are the notes whose annotation this app has stopped reading as an
+   * annotation at all — today, everything in a `.tex` file's preamble, which is
+   * the build rather than the paper. Ten of them in the store this was written
+   * against, every one a note about `main.tex`'s font setup sitting in a column
+   * of notes about the argument, which is the complaint that produced this.
+   *
+   * Leaving them in `shown` is what the reader objected to. Dropping them from
+   * the answer entirely would be the filter this file's own essay refuses:
+   * somebody who wrote a reply on one would find it gone with nothing anywhere
+   * saying why. So they come back separately, with the sentence each one
+   * carries about why it was withdrawn, and the page draws a line about them
+   * rather than the notes themselves.
+   *
+   * They are taken out BEFORE `adrift` and before `elsewhere` is counted. A
+   * withdrawn note's anchor is not interesting — this app is not claiming
+   * anything about where it points any more — and counting it as "outside what
+   * is selected" would put a number on the screen that widening cannot explain.
+   */
+  withdrawn: Anchored[]
+}
+
+/** Whether this app has stopped reading a note's annotation as one. See `Source.withdrawn`. */
+function isWithdrawn(one: Anchored): boolean {
+  return Boolean(sourceOf(one.note)?.withdrawn)
 }
 
 /** Where a note can be placed, given what its anchor turned out to be. */
@@ -143,23 +173,28 @@ function inOrder(a: Anchored, b: Anchored): number {
  * the whole of the ladder, and it is the reason the ladder can be tested
  * without a browser, a store, or a `.tex` file.
  */
-export function narrow(notes: Anchored[], scope: Scope): Narrowed {
+export function narrow(all: Anchored[], scope: Scope): Narrowed {
+  /* Taken out first, everywhere, so no rung of the ladder can put one back. */
+  const withdrawn = all.filter(isWithdrawn)
+  const notes = all.filter((one) => !isWithdrawn(one))
+
   if (scope.kind === 'nowhere') {
-    return { scope, shown: [], adrift: [], elsewhere: notes.length }
+    return { scope, shown: [], adrift: [], elsewhere: notes.length, withdrawn: [] }
   }
 
   if (scope.kind === 'everything') {
     const adrift = notes.filter((one) => !placeable(one))
     const shown = notes.filter(placeable).sort(inOrder)
-    return { scope, shown, adrift, elsewhere: 0 }
+    return { scope, shown, adrift, elsewhere: 0, withdrawn }
   }
 
+  const mine = withdrawn.filter((one) => one.note.path === scope.path)
   const here = notes.filter((one) => one.note.path === scope.path)
   const adrift = here.filter((one) => !placeable(one))
   const placed = here.filter(placeable)
 
   if (scope.kind === 'document') {
-    return { scope, shown: placed.sort(inOrder), adrift, elsewhere: 0 }
+    return { scope, shown: placed.sort(inOrder), adrift, elsewhere: 0, withdrawn: mine }
   }
 
   if (scope.kind === 'page') {
@@ -168,7 +203,7 @@ export function narrow(notes: Anchored[], scope: Scope): Narrowed {
        an agent that had no page to give; hiding it on every page would be this
        app losing a note to a field somebody left out. */
     const shown = placed.filter((one) => one.note.page === null || one.note.page === scope.page)
-    return { scope, shown: shown.sort(inOrder), adrift, elsewhere: placed.length - shown.length }
+    return { scope, shown: shown.sort(inOrder), adrift, elsewhere: placed.length - shown.length, withdrawn: mine }
   }
 
   /* A passage. Overlap against where each note points NOW — the moved offsets
@@ -176,7 +211,7 @@ export function narrow(notes: Anchored[], scope: Scope): Narrowed {
   const shown = placed.filter((one) =>
     overlaps({ from: one.anchor.from as number, to: one.anchor.to as number }, { from: scope.from, to: scope.to }),
   )
-  return { scope, shown: shown.sort(inOrder), adrift, elsewhere: placed.length - shown.length }
+  return { scope, shown: shown.sort(inOrder), adrift, elsewhere: placed.length - shown.length, withdrawn: mine }
 }
 
 /**

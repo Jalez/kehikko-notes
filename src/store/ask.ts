@@ -78,6 +78,8 @@ export interface Looked {
   shown: Anchored[]
   adrift: Anchored[]
   elsewhere: number
+  /** Notes this app lifted under a rule it no longer applies. See `Source.withdrawn`. */
+  withdrawn: Anchored[]
   /** Whether this app was able to open any of these documents to check an anchor. */
   verified: boolean
   trouble: string | null
@@ -121,6 +123,7 @@ export async function look(ask: Ask): Promise<Looked | { error: string }> {
       shown: Array.isArray(body.shown) ? body.shown : [],
       adrift: Array.isArray(body.adrift) ? body.adrift : [],
       elsewhere: typeof body.elsewhere === 'number' ? body.elsewhere : 0,
+      withdrawn: Array.isArray(body.withdrawn) ? body.withdrawn : [],
       verified: body.verified === true,
       trouble: typeof body.trouble === 'string' ? body.trouble : null,
     }
