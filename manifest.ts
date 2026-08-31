@@ -4,6 +4,30 @@ export const ID = 'roadmap.notes'
 export const VERSION = '1.0.0'
 
 /**
+ * The port this app would rather have, said once and beside the name it goes
+ * with.
+ *
+ * It used to be said twice — `--port "${PORT:-7940}"` at the bottom of `run.sh`
+ * and `Number(process.env.PORT ?? 7940)` in `register.ts` — with nothing keeping
+ * the two honest, and a third copy of the number sitting in `~/.roadmap/modules`
+ * from whenever somebody last ran the second. Moving this app was two edits and
+ * a thing to remember.
+ *
+ * It is here rather than in `vite.config.ts` because `register.ts` wants it too,
+ * and importing a Vite config to read one number would build the whole plugin
+ * list and mint this process's write ticket on the way to finding out what to
+ * write down.
+ *
+ * And it is a PREFERENCE, which is the part worth saying out loud: 7820 through
+ * 7960 belong to the other modules on this machine, and if something else holds
+ * 7940 when this starts then `serves()` moves to the next free port and rewrites
+ * the registration to match — see `roadmap-module-protocol/serve`. A host reads
+ * the registry, so the registry is the thing that has to be true. This number is
+ * only where to start looking.
+ */
+export const PREFERRED_PORT = 7940
+
+/**
  * What this app says about itself when a host asks.
  *
  * The manifest is the smallest half of this program and the only half a host
