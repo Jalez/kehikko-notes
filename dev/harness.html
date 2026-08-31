@@ -1,0 +1,98 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>a container of a given size, and nothing else</title>
+<!--
+  A container the size a canvas actually gives this module, so that its layout can be
+  MEASURED rather than guessed at.
+
+  Nothing in this file is shipped. It exists because the module's own page,
+  opened directly, is the `NoProject` screen: unframed there is no project path
+  and therefore nothing to draw. Every claim about what fits at 220x300 needs a
+  host saying which project and which passage, and a box of exactly that size to
+  say it into.
+
+  It is served by Vite from this repository, which is the point: the module's
+  `content-security-policy` says `frame-ancestors 'self'`, so a harness on any
+  other origin - a file:// page, a second port - is a blank frame with an error
+  in a console nobody is reading.
+
+  The container is a BOX, and `roadmap.resize` is ignored unless `?grow=1`. That is
+  what the canvas does with a container whose "grow" is off (see `onHeight` in
+  kehikko's `App.tsx`, which also never SHRINKS a container), and it is the case
+  this module has to be good at: the person chose the size, and the module lives
+  inside it.
+
+  Query: ?w=220&h=300&path=...&from=...&to=...&page=...&grow=1&theme=dark
+-->
+<style>
+  html, body { margin: 0; background: #6b7280; font: 12px/1.4 ui-sans-serif, system-ui; color: #fff; }
+  #box { background: #fff; overflow: hidden; }
+  iframe { width: 100%; height: 100%; border: 0; display: block; }
+  p { margin: 4px 6px; }
+</style>
+<p id="said"></p>
+<div id="box"><iframe id="frame" title="notes"></iframe></div>
+<script type="module">
+  const q = new URLSearchParams(location.search)
+  const w = Number(q.get('w') ?? 320)
+  const h = Number(q.get('h') ?? 300)
+  const grow = q.get('grow') === '1'
+  const box = document.getElementById('box')
+  box.style.width = w + 'px'
+  box.style.height = h + 'px'
+
+  const project = q.get('project') ?? 'thesis_latex'
+  const projectPath = q.get('projectPath') ?? '/Users/jaakkorajala/Claude/Projects/CS-DEGREE/05_drafts/thesis_latex'
+  const path = q.get('path') ?? projectPath + '/chapters/3_methods.tex'
+  const num = (name) => (q.get(name) === null || q.get(name) === '' ? null : Number(q.get(name)))
+
+  const context = {
+    epic: null,
+    project,
+    projectPath,
+    theme: q.get('theme') === 'dark' ? 'dark' : 'light',
+    passage: q.get('nowhere') === '1' ? null : {
+      path,
+      page: num('page'),
+      from: num('from'),
+      to: num('to'),
+      quoted: q.get('quoted') ?? '',
+    },
+    selection: [],
+    pinned: false,
+    prompt: null,
+  }
+
+  const frame = document.getElementById('frame')
+  const said = document.getElementById('said')
+  let asked = 0
+  window.addEventListener('message', (event) => {
+    if (event.source !== frame.contentWindow) return
+    const data = event.data
+    if (!data || typeof data !== 'object') return
+    if (data.type === 'roadmap.ready') {
+      frame.contentWindow.postMessage({ type: 'roadmap.context', protocol: 1, ...context }, '*')
+    }
+    if (data.type === 'roadmap.resize') {
+      asked = Number(data.height) || 0
+      /* Reported, always; obeyed only when a container says it may grow. The number is
+         what this module thinks it needs, and the probe reads it off this page. */
+      if (grow) box.style.height = Math.max(200, Math.min(asked, 20000)) + 'px'
+      said.textContent = `${w}x${h} - the module asked for ${asked}px`
+      document.body.dataset.asked = String(asked)
+    }
+    if (data.type === 'roadmap.request') {
+      /* Every request is answered, and `passage.set` is answered by BECOMING the
+         new context - which is what makes pressing a note testable here. */
+      if (data.method === 'passage.set') {
+        context.passage = data.params?.passage ?? null
+        frame.contentWindow.postMessage({ type: 'roadmap.context', protocol: 1, ...context }, '*')
+      }
+      frame.contentWindow.postMessage({ type: 'roadmap.response', id: data.id, ok: true, data: {} }, '*')
+    }
+  })
+  frame.addEventListener('load', () => {
+    frame.contentWindow.postMessage({ type: 'roadmap.hello', protocol: 1, session: 'probe', context, state: null }, '*')
+  })
+  frame.src = '/app'
+</script>

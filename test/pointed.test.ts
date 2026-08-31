@@ -15,7 +15,7 @@ function at(over: Partial<At> = {}): At {
 }
 
 function pressed(over: Partial<Pointed<At>> = {}): Pointed<At> {
-  return { id: 'n1', at: keyOf(at()), was: null, ...over }
+  return { id: 'n1', at: keyOf(at()), since: null, was: null, ...over }
 }
 
 describe('where the canvas is standing', () => {
@@ -45,7 +45,36 @@ describe('where the canvas is standing', () => {
   test('the same place with a differently spelled quote still matches', () => {
     const published = { ...at(), quoted: 'the whole sentence as it was sent' }
     const back = { ...at(), quoted: 'the whole sentence as it wa' }
-    expect(standing({ id: 'n1', at: keyOf(published), was: null }, back)).toBe(true)
+    expect(standing({ id: 'n1', at: keyOf(published), since: null, was: null }, back)).toBe(true)
+  })
+
+  /*
+   * The gap between asking and being answered, which every test above skipped
+   * over by handing `standing` a passage that had already arrived.
+   *
+   * A press is a state change and a message. The state change lands on the next
+   * render; the message cannot come back before it. So there is always at least
+   * one render where this container is holding a press and the host is still
+   * saying the passage the press was made from — and reading that as "somebody
+   * moved" threw every press away before a reader could see it. Measured in a
+   * browser: the second note of twenty, pressed, left one note in the list.
+   */
+  test('the passage a press was made from is still standing, until the echo arrives', () => {
+    const from = at({ from: 0, to: 999 })
+    const press = pressed({ at: keyOf(at()), since: keyOf(from) })
+    expect(standing(press, from)).toBe(true)
+    expect(standing(press, at())).toBe(true)
+  })
+
+  test('and a third place is the reader moving, press or no press', () => {
+    const press = pressed({ at: keyOf(at()), since: keyOf(at({ from: 0, to: 999 })) })
+    expect(standing(press, at({ from: 700, to: 710 }))).toBe(false)
+  })
+
+  /* A press made where nothing was pointing has no passage to have come from,
+     and `null` must not match a passage that simply has no range. */
+  test('a press from nowhere is not standing on every passage', () => {
+    expect(standing(pressed({ since: null }), at({ path: 'other.tex' }))).toBe(false)
   })
 
   /* A page-scoped note and a range on that page are different places, and a key
@@ -90,7 +119,7 @@ describe('what the list shows', () => {
     const first = pressed({ id: 'n1', at: keyOf(at()), was: list })
     const showing = shownAt(first, at())
 
-    const second: Pointed<At> = { id: 'n2', at: keyOf(at({ from: 50, to: 60 })), was: showing }
+    const second: Pointed<At> = { id: 'n2', at: keyOf(at({ from: 50, to: 60 })), since: keyOf(at()), was: showing }
     expect(shownAt(second, at({ from: 50, to: 60 }))).toEqual(list)
   })
 })

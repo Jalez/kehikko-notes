@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import type { Anchored } from '../notes/anchor.ts'
+import { roomFor } from '../notes/room.ts'
 import type { Note } from '../notes/shape.ts'
+import { Compose } from '../src/view/compose.tsx'
 import { NoteRow } from '../src/view/note.tsx'
 import { NoProject, Nowhere } from '../src/view/screens.tsx'
 
@@ -279,5 +281,113 @@ describe('the note the canvas is pointed at', () => {
   test('an unframed row is never marked', () => {
     const { container } = render(<NoteRow one={anchored('exact')} actions={actions} />)
     expect(container.querySelector('[data-pointed]')).toBeNull()
+  })
+})
+
+describe('in a container with no room, a row is a prefix of itself', () => {
+  /*
+   * The sizes are the ones a canvas hands out. What is asserted is that nothing
+   * a compact row hides is LOST -- every one of these comes back on the press
+   * that was already on the row, and the words themselves never go at all.
+   */
+  const small = roomFor({ width: 220, height: 300 })
+  const points = { ...actions, point: () => {} }
+
+  test('the words survive, which is the whole of what a note is', () => {
+    render(<NoteRow one={anchored('exact')} actions={points} room={small} />)
+    expect(screen.getByText('is this still true after the rewrite?')).toBeDefined()
+  })
+
+  test('and so does the verdict, because it is what a reader chooses by', () => {
+    render(<NoteRow one={anchored('adrift')} actions={points} room={small} />)
+    expect(screen.getByText('adrift')).toBeDefined()
+  })
+
+  test('the path, the author and the anchor’s sentence stand down', () => {
+    render(<NoteRow one={anchored('moved')} actions={points} room={small} />)
+    expect(screen.queryByText(/bridge\.tex/)).toBeNull()
+    expect(screen.queryByText(/the owner/)).toBeNull()
+    expect(screen.queryByTestId('anchor-said')).toBeNull()
+    expect(screen.queryByText('reply')).toBeNull()
+  })
+
+  test('and the whole of it comes back on the press that was already there', () => {
+    render(<NoteRow one={anchored('moved')} actions={points} room={small} />)
+    fireEvent.click(screen.getByText('is this still true after the rewrite?'))
+    expect(screen.getByText(/bridge\.tex/)).toBeDefined()
+    expect(screen.getByTestId('anchor-said')).toBeDefined()
+    expect(screen.getByText('reply')).toBeDefined()
+    expect(screen.getByText('re-anchor')).toBeDefined()
+    expect(screen.getByText('less')).toBeDefined()
+  })
+
+  /*
+   * The row takes the tab stop over because the button that used to carry it is
+   * one of the things a compact row does not draw. Without this, everything
+   * behind the press would be reachable by pointer alone.
+   */
+  test('and the press is one a keyboard can make', () => {
+    const { container } = render(<NoteRow one={anchored('exact')} actions={points} room={small} />)
+    const row = container.querySelector('[data-testid="note"]') as HTMLElement
+    expect(row.getAttribute('tabindex')).toBe('0')
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(screen.getByText(/bridge\.tex/)).toBeDefined()
+  })
+
+  /* An unframed page has nobody to point at anything, and still has rows that
+     have to be openable -- so the press exists there too. */
+  test('a row nothing can point at is still a row that opens', () => {
+    const { container } = render(<NoteRow one={anchored('exact')} actions={actions} room={small} />)
+    expect(container.querySelector('[data-testid="note"]')?.getAttribute('tabindex')).toBe('0')
+  })
+
+  /* A conversation is the one thing that must not vanish silently: a reader who
+     cannot see that somebody answered reads the note as the last word on it. */
+  test('replies that are not drawn are still counted', () => {
+    const one = anchored('exact')
+    one.note.replies = [
+      { id: 'r1', by: 'a reader', body: 'it is not', at: '2026-01-02T00:00:00.000Z', viaMcp: false },
+      { id: 'r2', by: 'another', body: 'nor was it', at: '2026-01-03T00:00:00.000Z', viaMcp: false },
+    ]
+    render(<NoteRow one={one} actions={points} room={small} />)
+    expect(screen.getByTestId('replies-said').textContent).toBe('2 replies')
+    expect(screen.queryByText('it is not')).toBeNull()
+  })
+})
+
+describe('writing one in a container a form would fill', () => {
+  const filling = roomFor({ width: 220, height: 300 })
+  const roomy = roomFor({ width: 900, height: 700 })
+  const props = {
+    quoted: 'A module is one origin or it is nothing.',
+    passage: true,
+    said: 'bridge.tex',
+    busy: false,
+    draft: '',
+    onDraft: () => {},
+    onSubmit: () => {},
+    onCancel: () => {},
+  }
+
+  test('takes the whole frame, over the list and the heading with it', () => {
+    render(<Compose room={filling} {...props} />)
+    expect(screen.getByTestId('compose-fill')).toBeDefined()
+    expect(screen.getByTestId('compose').getAttribute('data-shape')).toBe('fill')
+  })
+
+  test('and says what it will be attached to, since the heading is behind it', () => {
+    render(<Compose room={filling} {...props} />)
+    expect(document.body.textContent).toContain('a note on bridge.tex')
+  })
+
+  test('the passage is still shown, because nobody should attach a thought to words they cannot see', () => {
+    render(<Compose room={filling} {...props} />)
+    expect(screen.getByText('A module is one origin or it is nothing.')).toBeDefined()
+  })
+
+  test('and in a container with room it is a strip above the list, as it always was', () => {
+    render(<Compose room={roomy} {...props} />)
+    expect(screen.queryByTestId('compose-fill')).toBeNull()
+    expect(screen.getByTestId('compose').getAttribute('data-shape')).toBe('inline')
   })
 })

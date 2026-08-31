@@ -174,3 +174,52 @@
     overflow-wrap: anywhere;
   }
 }
+
+/*
+ * A small scroll brings the next note fully into view.
+ *
+ * ## The complaint this answers
+ *
+ * In a container 200 to 300 pixels tall, a flick of a trackpad left the list
+ * showing the bottom of one note and the top of the next, and neither of them
+ * was readable. Measured before this rule: at 220x300, with twenty notes on one
+ * chapter, not ONE note was fully on screen at rest, and a seventy-pixel scroll
+ * left the row at the top cut by four pixels — which is the worst possible
+ * amount, because it looks deliberate.
+ *
+ * ## `proximity`, and never `mandatory`
+ *
+ * `mandatory` says a scroller may never rest anywhere but a snap point, which
+ * is a promise this list cannot keep: a note taller than the frame has no
+ * position that satisfies it, and a browser resolving that makes the bottom of
+ * a long note unreachable. `proximity` snaps when a snap point is near and
+ * otherwise leaves the reader alone, which is exactly the sentence this was
+ * asked for in — "scrolling the next note to be fully visible when scrolling
+ * just a little".
+ *
+ * ## Off in a container with room to roam
+ *
+ * The attribute is set by `App` from `notes/room.ts`, and is absent above a
+ * screenful. A reader who can see four notes at once gains nothing from a
+ * scroller that keeps aligning them, and does feel it tugging.
+ *
+ * ## One row can still be left out, and it is left out by measurement
+ *
+ * A row taller than the window would keep its snap point at its own start, and
+ * proximity's range is the browser's to choose: near the top of a long note it
+ * chooses to snap, and a reader trying to reach the bottom of that note is then
+ * fighting the scroller. There is no CSS for "unless this element is taller
+ * than the scrollport", so `App` measures and marks `data-tall`, and this takes
+ * the snap point away again.
+ */
+[data-snap] {
+  scroll-snap-type: y proximity;
+}
+
+[data-snap] [data-testid='note'] {
+  scroll-snap-align: start;
+}
+
+[data-snap] [data-testid='note'][data-tall] {
+  scroll-snap-align: none;
+}
