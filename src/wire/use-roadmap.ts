@@ -2,14 +2,33 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ModuleContext } from 'roadmap-module-protocol'
 
-import { connect, type Host, type HostEvents } from './host.ts'
+import { connect, type Connection, type HostEvents } from 'roadmap-module-protocol/client'
 
 /**
  * The bridge, as one React value.
  *
- * `host.ts` is the wire and knows no React; this is the only file that turns
- * messages into state, and it is deliberately the only one. Two places driving
- * "what can this page see" would eventually disagree.
+ * `roadmap-module-protocol/client` is the wire and knows no React; this is the
+ * only file that turns messages into state, and it is deliberately the only
+ * one. Two places driving "what can this page see" would eventually disagree.
+ *
+ * ## What used to be underneath this
+ *
+ * `wire/host.ts` and `wire/mailbox.ts` — 418 lines, near-identical to the copy
+ * in three sibling modules — are one import now. Nothing this page says on the
+ * wire changed and no field starts or stops arriving: this copy already passed
+ * the context through whole rather than rebuilding it from a list of named
+ * fields.
+ *
+ * The `goto` backstop stays at 500ms. That is worth a sentence, because there
+ * are two lineages of this number in the family — 500 and 900 — and this
+ * module has always been on the shorter one, whatever a grouping written from
+ * memory says. It is the client's default, so it needed no option.
+ *
+ * This hook survives on top of the core client rather than being replaced by
+ * `…/client/react`, because of the passage comparison below: a generic hook
+ * handing back the whole context would push a fresh object identity downstream
+ * every couple of seconds, which here means re-asking this app's own store for
+ * the same notes several times a second.
  *
  * ## What this hook holds, which is nearly nothing
  *
@@ -127,7 +146,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
   const [project, setProject] = useState<string | null>(null)
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [passage, setPassage] = useState<Passage | null>(null)
-  const host = useRef<Host | null>(null)
+  const host = useRef<Connection | null>(null)
 
   /**
    * The handler, held in a ref and read at the moment a `goto` arrives.
@@ -172,35 +191,32 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
     }
 
     /**
-     * The connection is stored BEFORE the greeting is acted on, and the order is
+     * The connection is stored BEFORE it is told to listen, and the order is
      * the whole of a bug that made a sibling module hang forever.
      *
-     * `connect` subscribes to the mailbox, and the mailbox replays what has
+     * `listen()` subscribes to the mailbox, and the mailbox replays what has
      * already arrived SYNCHRONOUSLY, inside that call. The greeting almost
      * always arrives before React mounts — that is the entire reason the mailbox
-     * exists — so `onHello` fires on this line, before `host.current` has been
-     * assigned. Anything reading `host.current` then finds null and quietly does
-     * nothing.
+     * exists — so `onHello` fires on that line, and anything reading
+     * `host.current` before the assignment finds null and quietly does nothing.
      *
      * Worse, it works often enough to look fine. When the host happens to greet
      * after this effect returns — a slow module, a reload, a busy machine — the
      * assignment has already happened and everything behaves. A race whose good
      * outcome is the common one is the kind that ships.
+     *
+     * What stood here was a box that caught the too-early arrival and replayed
+     * it once the assignment was done — this module's copy of a workaround
+     * every module in the family wrote for itself. `connect` and `listen` are
+     * two calls now, so the order is three plain lines: build, store, listen.
      */
-    let ready = false
-    const early: { context: ModuleContext | null } = { context: null }
-    const heldEarly = (context: ModuleContext) => {
-      if (ready) arrived(context)
-      else early.context = context
-    }
-
-    host.current = connect(id, {
-      onHello: (context) => heldEarly(context),
-      onContext: (context) => heldEarly(context),
+    const live = connect(id, {
+      onHello: (context) => arrived(context),
+      onContext: (context) => arrived(context),
       onGoto: (message, answer) => goto.current(message, answer),
     })
-    ready = true
-    if (early.context) arrived(early.context)
+    host.current = live
+    live.listen()
 
     const grace = setTimeout(() => {
       setWhere((was) => (was === 'listening' ? 'unhosted' : was))
@@ -208,8 +224,10 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
 
     return () => {
       clearTimeout(grace)
-      host.current?.stop()
-      host.current = null
+      live.stop()
+      /* Cleared only if it is still ours: under StrictMode the second mount has
+         already assigned its own connection by the time some cleanups run. */
+      if (host.current === live) host.current = null
     }
   }, [id])
 
