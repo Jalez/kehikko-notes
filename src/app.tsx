@@ -581,18 +581,44 @@ export function App() {
        */}
       {looked?.withdrawn.length ? (
         <section data-testid="withdrawn-group" className="min-w-0 space-y-1">
-          <p className="min-w-0 text-[0.7rem] text-muted-foreground">
-            {looked.withdrawn.length} from this file{"\u2019"}s build rather than its argument.
-          </p>
-          <Button size="container" variant="ghost" onClick={() => setShowWithdrawn((was) => !was)}>
-            {showWithdrawn ? 'hide them' : 'show them'}
+          {/*
+           * A press, and no standing sentence above it.
+           *
+           * What these are is narrow and specific: `%` comments from before
+           * `\begin{document}` -- the document class, the fonts, the macros
+           * that define the note commands. This app used to read them as notes
+           * about the text and no longer does.
+           *
+           * It said so in a line that stood there always, and the line said
+           * "from this file's build rather than its argument", which is this
+           * codebase's own metaphor and meant nothing to the person reading it
+           * -- they said as much. A reader who has never seen these notes needs
+           * no sentence at all; one who remembers them needs the plain word for
+           * where they came from, which is `preamble`, and needs it once, when
+           * they go looking.
+           */}
+          <Button
+            size="container"
+            variant="ghost"
+            data-testid="show-preamble"
+            onClick={() => setShowWithdrawn((was) => !was)}
+          >
+            {showWithdrawn
+              ? 'hide preamble comments'
+              : `show ${looked.withdrawn.length} preamble comment${looked.withdrawn.length === 1 ? '' : 's'}`}
           </Button>
           {showWithdrawn ? (
-            <ul className="min-w-0">
-              {looked.withdrawn.map((one) => (
-                <NoteRow key={one.note.id} one={one} actions={actions} pointed={pointed?.id === one.note.id} />
-              ))}
-            </ul>
+            <>
+              <p className="min-w-0 text-[0.7rem] text-muted-foreground">
+                Comments from before <code>{'\\begin{document}'}</code> — the document class, the fonts, the macros.
+                No longer read as notes about the text.
+              </p>
+              <ul className="min-w-0">
+                {looked.withdrawn.map((one) => (
+                  <NoteRow key={one.note.id} one={one} actions={actions} pointed={pointed?.id === one.note.id} />
+                ))}
+              </ul>
+            </>
           ) : null}
         </section>
       ) : null}
