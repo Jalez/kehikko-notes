@@ -35,6 +35,12 @@ const badgeVariants = cva(
       variant: {
         default: 'bg-muted text-muted-foreground',
         outline: 'text-muted-foreground',
+        /* Kept although `view/note.tsx` no longer asks for it: a healthy anchor
+           draws no badge at all now, and the essay there says why. The variant
+           stays because the colour it names is still the vocabulary the other
+           four are read against — `--exact` is what `unchecked` is deliberately
+           not — and because the day something wants to say "this one is fine"
+           in a place where that is news, this is the word for it. */
         exact: 'border-exact/40 text-exact',
         moved: 'border-moved/50 text-moved',
         adrift: 'border-adrift/50 text-adrift',

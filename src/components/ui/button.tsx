@@ -25,6 +25,12 @@ const buttonVariants = cva(
         default: 'h-9 px-4 py-2',
         sm: 'h-8 rounded-md px-3',
         container: 'h-6 rounded px-2 text-xs',
+        /* An icon-only press on the same line as `container` ones, and the same
+           height as them. shadcn's `icon` is 32 pixels square, which beside a
+           24-pixel row of text buttons reads as a different kind of control
+           that happens to be there. Square rather than padded, because there is
+           no text to pad around. */
+        containerIcon: 'size-6 rounded',
         icon: 'size-8',
       },
     },

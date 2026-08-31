@@ -90,10 +90,16 @@ describe('markup that is read rather than shown', () => {
   })
 
   test('the dotless letters exist to be accented and are', () => {
-    /* `\"\i` is how TeX spells `ï`: the dot comes off so the diaeresis can sit
-       where it was. Unicode composes `ï` from a plain `i`, so the base this
-       wants is the dotted letter. */
-    expect(readable('na\\"\\ive')).toBe('naïve')
+    /* `\"{\i}` is how TeX spells `ï`: the dot comes off so the diaeresis can
+       sit where it was. Unicode composes `ï` from a plain `i`, so the base this
+       wants is the dotted letter.
+
+       Written with the braces, because `na\"\ive` is not that word — TeX reads
+       a control word to the end of its letters, so the command there is `\ive`
+       and not `\i`. This test asserted the wrong spelling until the guard
+       below was added and it stopped passing, which is the useful way to find
+       out. */
+    expect(readable('na\\"{\\i}ve')).toBe('naïve')
   })
 })
 
@@ -141,6 +147,71 @@ describe('everything else is left exactly as the author wrote it', () => {
 
   test('a style command with no argument is not a wrapper', () => {
     expect(readable('{\\emph is a switch here}')).toBe('{\\emph is a switch here}')
+  })
+})
+
+describe('an accent with nothing to sit on', () => {
+  /*
+   * Three ways the accent branch used to consume input it had not understood,
+   * all found by the module that does the same job in the paper — which was
+   * handed this file as a reference and deliberately did not copy them.
+   *
+   * They share a shape and it is the worst one available: each produced a
+   * plausible-looking word rather than a visible failure. A reader meeting a
+   * misplaced circumflex reads it as a typo in their own thesis; a reader
+   * meeting `\^{}` on screen knows something went unrendered. The second is the
+   * failure this file is supposed to have.
+   */
+
+  test('a caret on nothing does not put a circumflex on the previous word', () => {
+    /* `\^{}` is a real idiom — an accent with an empty group, used to get a
+       standalone diacritic or as a placeholder. This returned the bare
+       combining character for it, which is not a visible mistake: a floating
+       U+0302 attaches to whatever glyph precedes it, so the mark landed on the
+       last letter of the word before it. */
+    expect(readable('word \\^{} after')).toBe('word \\^{} after')
+    expect(readable('word \\^{}')).not.toContain('\u0302')
+  })
+
+  test('a braced argument that is not a letter is not a base', () => {
+    /* The argument used to be run back through this same pass, so anything at
+       all could come out of it and wear a diaeresis. Only a plain letter run,
+       or a dotless letter, is something to accent — and what is left falls
+       through to the ordinary paths, which is why the `\emph` inside still
+       unwraps and the escape in front of it is shown as source. */
+    expect(readable('\\"{\\emph{a}}')).toBe('\\"{a}')
+    expect(readable('\\"{ab cd}')).toBe('äb cd')
+  })
+
+  test('a dotless letter is only dotless when no letter follows it', () => {
+    /* `\i` was matched with `startsWith`, which is equally true of `\int` and
+       `\imath` — so `\^\int` became `î` with a stray `nt` after it, which is a
+       sentence about mathematics turned into a misspelling. */
+    expect(readable('\\^\\int')).toBe('\\^\\int')
+    expect(readable('\\"\\imath')).toBe('\\"\\imath')
+    /* And the real dotless letter still works, which is what makes the rule
+       above a distinction rather than a refusal. `\ive` is a command whose name
+       is `ive`; `\i` at the end of a word, or in braces, is the letter. */
+    expect(readable('na\\"{\\i}ve')).toBe('naïve')
+    expect(readable('\\^\\i')).toBe('î')
+  })
+
+  test('the ordinary accents are untouched by all three guards', () => {
+    expect(readable('\\^{a} \\"{o} \\c{c} \\v s')).toBe('â ö ç š')
+  })
+})
+
+describe('the two modules agree about a tie, by assertion rather than by luck', () => {
+  test('a tie is a space here and a space in the paper', () => {
+    /*
+     * `~` was added to this pass from corpus evidence — every tie in the thesis
+     * sits between a word and a cross-reference — and nothing pinned it. The
+     * paper module has since asserted the same string against its own parser,
+     * so this is the other half of that pair: the two modules share these
+     * tables by COPY and not by import, which means the only thing that can
+     * keep them honest is each one asserting the same answer.
+     */
+    expect(readable('\\textbf{RQ1}~how')).toBe('RQ1 how')
   })
 })
 

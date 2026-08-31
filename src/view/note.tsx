@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 
 import type { Anchored } from '@/store/ask.ts'
 import { sourceOf } from '../../notes/shape.ts'
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button.tsx'
 /**
  * One note, and the truth about its anchor beside it.
  *
- * ## The verdict is the first thing on the row and never the last
+ * ## A bad verdict is the first thing on the row. A good one is not drawn
  *
  * A reader scanning a column of notes is deciding which to read. If the anchor
  * verdict were a detail at the bottom, a note whose passage has been rewritten
@@ -20,6 +20,33 @@ import { Button } from '@/components/ui/button.tsx'
  * So the badge is first, it is a WORD as well as a colour, and the sentence
  * explaining it sits under the quote where somebody comparing the two will
  * find it.
+ *
+ * That argument is about making the BAD states loud, and for its whole life
+ * this file also drew the good one — a badge saying `anchored` on every healthy
+ * row, which is nearly every row. The owner's words: "I don't understand why
+ * each note has to have an 'anchored' badge, I don't understand the value of
+ * it." There is none. `exact` is the overwhelming majority verdict, so the word
+ * appeared on almost every row of almost every list, and a word that is on
+ * every row is the default spelled out. It carried no information and it cost
+ * the one thing the argument above was trying to buy: when everything is
+ * badged, a badge is not a signal.
+ *
+ * So `exact` draws nothing. A note that is fine says nothing about being fine,
+ * and `moved`, `adrift`, `unchecked` and `whole page` keep their badge, their
+ * colour and their sentence — louder now, because they are the only ones there.
+ * The absence is not silence about an unchecked note either: `unverified` is
+ * its own verdict with its own word, precisely so that "this app could not
+ * look" is never drawn the same as "this app looked and it is fine".
+ *
+ * ## The other badges were checked against the same test, and kept
+ *
+ * `resolved` is on a minority of rows and is the thing a reader is filtering
+ * by. `over MCP` is on the notes an agent left. The provenance badge is on
+ * derived notes and not on typed ones. All three vary between neighbouring
+ * rows, which is the whole test, and the last two are already not drawn in a
+ * compact container — which is worth saying plainly, because it means the
+ * verdict was the ONLY badge on every row of the 220-pixel container the
+ * complaint came out of.
  *
  * ## The quote is shown even when — especially when — it is adrift
  *
@@ -52,8 +79,20 @@ import { Button } from '@/components/ui/button.tsx'
  * promise; none of it would be a different one.
  */
 
-const VERDICT: Record<string, { word: string; variant: 'exact' | 'moved' | 'adrift' | 'unchecked' | 'unranged' }> = {
-  exact: { word: 'anchored', variant: 'exact' },
+/**
+ * The word for each verdict worth a badge, which is every verdict but one.
+ *
+ * `exact` is deliberately absent rather than mapped to an empty string: a
+ * lookup that misses is how this file already spells "there is nothing to draw
+ * here", and an entry whose word is `''` would be a badge with no text in it —
+ * a coloured rectangle beside every healthy note, which is the same complaint
+ * one step quieter.
+ *
+ * `unverified` keeps its word and must. "This app could not read the document"
+ * is not "this app read it and the note is fine", and drawing nothing for both
+ * would be this row telling a reader the one thing `anchor.ts` refuses to.
+ */
+const VERDICT: Record<string, { word: string; variant: 'moved' | 'adrift' | 'unchecked' | 'unranged' }> = {
   moved: { word: 'moved', variant: 'moved' },
   adrift: { word: 'adrift', variant: 'adrift' },
   unverified: { word: 'unchecked', variant: 'unchecked' },
@@ -61,18 +100,33 @@ const VERDICT: Record<string, { word: string; variant: 'exact' | 'moved' | 'adri
 }
 
 /**
- * How many lines of somebody else's prose to show, as a class.
+ * How many lines of somebody else's prose to show, as a style.
  *
- * Written out rather than interpolated: Tailwind's classes are strings a build
- * step looks for in this file, so `line-clamp-${n}` compiles to no CSS at all
- * and clamps nothing — a bug whose only symptom is a layout that was fine in
- * the developer's browser because some other file happened to name the class.
+ * ## Why this is not `line-clamp-N` any more, and could not be
+ *
+ * It used to be a lookup table of two Tailwind classes, `line-clamp-2` and
+ * `line-clamp-3`, written out rather than interpolated — because Tailwind's
+ * classes are strings a build step looks for in this file, so
+ * `line-clamp-${n}` compiles to no CSS at all and clamps nothing. That is a
+ * real hazard and it is the reason the table existed.
+ *
+ * The number is no longer one of two. `room.bodyLines` is now as many lines as
+ * the FRAME holds — 6 in a 200-pixel container, 11 in a 300-pixel one, 41 in a
+ * tall narrow one — so a table would need a row per pixel height, and Tailwind
+ * ships `line-clamp-1` through `line-clamp-6` and no further regardless.
+ *
+ * So it is written as the four declarations Tailwind's own utility expands to.
+ * A style attribute carries a number the build step never has to have seen,
+ * which is the whole difficulty, and it cannot silently compile to nothing.
  */
-const CLAMP: Record<number, string> = { 2: ' line-clamp-2', 3: ' line-clamp-3' }
-
-function clamped(lines: number | null, off: boolean): string {
-  if (off || lines === null) return ''
-  return CLAMP[lines] ?? ''
+function clamped(lines: number | null, off: boolean): CSSProperties | undefined {
+  if (off || lines === null) return undefined
+  return {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: lines,
+    overflow: 'hidden',
+  }
 }
 
 export interface NoteActions {
@@ -120,7 +174,10 @@ export function NoteRow({
    */
   const [open, setOpen] = useState(false)
   const whole = !room.compact || open
-  const verdict = VERDICT[anchor.state] ?? VERDICT.unverified
+  /* Undefined for `exact`, and for `exact` alone. An anchor state this file has
+     never heard of falls back to `unchecked`, which is the honest word for a
+     verdict nobody here can read. */
+  const verdict = anchor.state === 'exact' ? undefined : (VERDICT[anchor.state] ?? VERDICT.unverified)
   /* Read through `sourceOf` rather than off the record, so that a note written
      before this field existed — where it is absent rather than null — is read
      as what it is: something a person typed. */
@@ -225,7 +282,7 @@ export function NoteRow({
       }
     >
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <Badge variant={verdict?.variant}>{verdict?.word}</Badge>
+        {verdict ? <Badge variant={verdict.variant}>{verdict.word}</Badge> : null}
         {note.resolved ? <Badge variant="outline">resolved</Badge> : null}
         {/* The two provenance badges wrap onto lines of their own at 220px, and
             three stacked badges are two thirds of what a compact row is allowed
@@ -290,10 +347,8 @@ export function NoteRow({
       */}
       {note.quoted && !source ? (
         <blockquote
-          className={
-            'mt-1 min-w-0 border-l-2 border-border pl-2 text-xs italic text-muted-foreground'
-            + clamped(room.quoteLines, open)
-          }
+          style={clamped(room.quoteLines, open)}
+          className="mt-1 min-w-0 border-l-2 border-border pl-2 text-xs italic text-muted-foreground"
         >
           {note.quoted}
         </blockquote>
@@ -304,10 +359,9 @@ export function NoteRow({
           two lines that end in an ellipsis say "there is more of this" where a
           paragraph running under the bottom edge says nothing at all. */}
       <p
-        className={
-          'mt-1.5 min-w-0 text-sm'
-          + clamped(room.bodyLines, open)
-        }
+        data-testid="body"
+        style={clamped(room.bodyLines, open)}
+        className="mt-1.5 min-w-0 text-sm"
       >
         {note.body}
       </p>

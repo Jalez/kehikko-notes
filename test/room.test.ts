@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { ROOMY, roomFor, snappable } from '../notes/room.ts'
+import { ROOMY, linesInFrame, roomFor, snappable } from '../notes/room.ts'
 
 /**
  * What a container this size is allowed to draw.
@@ -48,6 +48,24 @@ describe('a small container shows less, never something else', () => {
     }
   })
 
+  test('a row that fits the frame is a row that can carry a snap point', () => {
+    /*
+     * The two halves of "one note fully" have to agree, and this is where they
+     * are checked against each other rather than in a browser. A body clamped
+     * to `bodyLines`, plus the 39 pixels of chrome above it, must come out at
+     * or under the scroller's own height — otherwise `snappable` takes the
+     * row's snap point away and a flick lands part-way into a note, which is
+     * the failure being fixed.
+     */
+    for (const frame of [canvas, strip, middling]) {
+      const lines = roomFor(frame).bodyLines
+      expect(lines).not.toBeNull()
+      const row = 39 + (lines ?? 0) * 20
+      const view = frame.height - 40
+      expect(snappable(row, view)).toBe(true)
+    }
+  })
+
   test('the words themselves are never dropped, only clamped', () => {
     /* Every other field can go. The body is what somebody wrote down and the
        quote is what they wrote it about, and a row without either is a row
@@ -56,9 +74,44 @@ describe('a small container shows less, never something else', () => {
     expect(roomFor(canvas).quoteLines).toBeGreaterThan(0)
   })
 
-  test('the shortest containers get one line of prose fewer than the merely small', () => {
-    expect(roomFor({ width: 220, height: 300 }).bodyLines).toBe(2)
-    expect(roomFor(middling).bodyLines).toBe(3)
+  test('a note gets as many lines as the frame holds, not as many as fit three rows', () => {
+    /*
+     * The owner: "when there's not enough space in notes — instead of trying to
+     * squeeze as many notes visible at once, it should focus on showing one
+     * note fully."
+     *
+     * The rule this replaced was two lines under 320 pixels and three above,
+     * numbers chosen to fit three rows into a 300-pixel box. They did:
+     * `dev/sizes.mjs` reported three notes fully on screen at 220x300 and that
+     * was recorded as the win. Every one of the three was two lines of a note
+     * that wanted twenty. The probe counts `whole` now — on screen AND not
+     * truncated — and the old layout measured `fully: 3, whole: 0`.
+     *
+     * The table below is the arithmetic, not the pixels: 20 for a line of
+     * `text-sm`, 39 for a row's badge line and padding, 40 for the heading
+     * above the scroller. All three were measured, and the row that comes out
+     * is one frameful — 259 pixels in a 264-pixel window at 220x300, which is
+     * also the condition `snappable` needs.
+     */
+    expect(roomFor({ width: 220, height: 300 }).bodyLines).toBe(11)
+    expect(roomFor(strip).bodyLines).toBe(6)
+    expect(roomFor(middling).bodyLines).toBe(14)
+  })
+
+  test('a container with height to spare draws a whole note even when it is narrow', () => {
+    /* Narrow is still compact — the path, the author and the four buttons are
+       still dropped — but there is no reason to truncate anybody's words in a
+       900-pixel column, and the old rule clamped them to three lines there. */
+    expect(roomFor({ width: 220, height: 900 }).compact).toBe(true)
+    expect(roomFor({ width: 220, height: 900 }).bodyLines).toBe(41)
+  })
+
+  test('and the smallest box anybody can drag still gets a note rather than a line', () => {
+    /* Below the point where two lines fit, the arithmetic goes negative. Two
+       lines and an honest scroll beats one line, and beats zero. */
+    expect(linesInFrame(150)).toBe(3)
+    expect(linesInFrame(80)).toBe(2)
+    expect(linesInFrame(0)).toBe(2)
   })
 
   test('a caller that measured nothing draws everything', () => {

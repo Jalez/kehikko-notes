@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ID } from '../manifest.ts'
@@ -92,6 +93,16 @@ export function App() {
   const [round, setRound] = useState(0)
   /** Whether the notes this app has stopped lifting are on screen. One press. */
   const [showWithdrawn, setShowWithdrawn] = useState(false)
+  /**
+   * Whether some row is taller than the window, and the scroller must therefore
+   * let a reader rest anywhere in it.
+   *
+   * Set by the measuring effect below, which is already looking at every row's
+   * height for the other half of the same question. False is the ordinary
+   * state now that a note's body is clamped to the frame, and it is what lets
+   * the list snap hard enough that one flick is one note.
+   */
+  const [loose, setLoose] = useState(false)
 
   /**
    * The note this container pointed the canvas at, and what the list was
@@ -461,10 +472,32 @@ export function App() {
     const rows = () => Array.from(el.querySelectorAll<HTMLElement>('[data-testid="note"]'))
     const mark = () => {
       const view = el.clientHeight
+      let anyTall = false
       for (const row of rows()) {
         if (snappable(row.offsetHeight, view)) delete row.dataset.tall
-        else row.dataset.tall = '1'
+        else {
+          row.dataset.tall = '1'
+          anyTall = true
+        }
       }
+      /*
+       * And the same measurement decides how hard the scroller snaps.
+       *
+       * `room.bodyLines` now clamps a note to what the frame holds, so an
+       * unopened row IS a frameful and the list can promise what `mandatory`
+       * requires — never resting between two notes. That promise is off the
+       * moment any row is taller than the window, which is what opening one
+       * does: measured at 220x300, an opened note is 708 pixels in a 264-pixel
+       * frame, and under `mandatory` a scroll aimed at its middle was thrown to
+       * its end. So the scroller loosens to `proximity` for as long as such a
+       * row exists, and the reader can rest anywhere inside it.
+       *
+       * State rather than a write to the element, because `data-snap` is set in
+       * the JSX below and an effect assigning it would be overwritten by the
+       * next render — the same rule `PaginatedView` in the paper module keeps
+       * about marks.
+       */
+      setLoose((was) => (was === anyTall ? was : anyTall))
     }
     const watcher = new ResizeObserver(mark)
     watcher.observe(el)
@@ -610,8 +643,34 @@ export function App() {
            * the module's only way to write anything down.
            */}
           {canWrite && !composing ? (
-            <Button size="container" variant="ghost" data-testid="write" onClick={() => setWriting(true)}>
-              write a note here
+            <Button
+              size="containerIcon"
+              variant="ghost"
+              data-testid="write"
+              /*
+               * An icon with no name is a control nobody can say out loud.
+               *
+               * Both of these, and neither is decoration. `aria-label` is what a
+               * screen reader announces and the only name this press has once
+               * the words are gone; `title` is what a pointer gets on hover,
+               * which is the same promise for the other half of the people
+               * using it. This workspace already removed a control for being
+               * unguessable — a refresh button that was an icon and nothing
+               * else — and the lesson recorded there was that an icon is only
+               * allowed to replace words when the words survive somewhere a
+               * person or a reader can reach them.
+               *
+               * The sentence is kept exactly as it read on the button, rather
+               * than shortened to "new note": "here" is the load-bearing word.
+               * This container writes a note about the passage the reader is
+               * standing on, and a name that dropped that would be naming a
+               * different control.
+               */
+              aria-label="write a note here"
+              title="write a note here"
+              onClick={() => setWriting(true)}
+            >
+              <Plus aria-hidden className="size-3.5" />
             </Button>
           ) : null}
         </div>
@@ -623,7 +682,7 @@ export function App() {
         /* Snapping is an attribute rather than a class because the rule it
            turns on has to reach the rows inside, and one of those rows may be
            excluded from it by measurement. See `index.css`. */
-        data-snap={room.snap ? '1' : undefined}
+        data-snap={room.snap ? (loose ? '1' : 'tight') : undefined}
         className="min-h-0 min-w-0 flex-1 overflow-y-auto px-2 pb-2 @sm/container:px-3 @sm/container:pb-3"
       >
         <div ref={body} className="min-w-0 space-y-2">

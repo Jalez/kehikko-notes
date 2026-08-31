@@ -243,9 +243,17 @@ function nameAt(text: string, at: number): string {
  * because `\"{oo}` — which nobody writes on purpose but which a truncated
  * source can produce — should accent the letter it names and leave the rest
  * alone, not hang a diaeresis off the end of a word.
+ *
+ * `base` is never empty, and the caller is what guarantees it: the scan below
+ * only reaches this once it has a letter to accent, and emits the escape as
+ * source when it has not. That guarantee used to be missing and the bug it let
+ * through is the reason this paragraph exists — `\^{}` is a real idiom, a caret
+ * on nothing, and this returned the bare combining character for it. A floating
+ * U+0302 is not a visible mistake: it attaches to whatever glyph happens to
+ * precede it, so the circumflex landed on the last letter of the previous word
+ * and read as a typo in the author's own thesis.
  */
 function accented(base: string, mark: string): string {
-  if (!base) return mark
   return (base[0] + mark + base.slice(1)).normalize('NFC')
 }
 
@@ -326,34 +334,66 @@ export function readable(text: string): string {
 
     const mark = MARKS[name]
     if (mark !== undefined) {
-      /* A letter-named accent binds to a brace group or to a single letter,
-         and to nothing else: `\v{s}` and `\c c` are accents, `\vspace` is not
-         and never reaches here because its name is `vspace`, and a bare `\r`
-         at the end of a word is left alone rather than eating what follows. */
-      const letterNamed = /^[a-zA-Z]$/.test(name)
+      /* A letter-named accent is allowed the space that separates it from its
+         argument, because TeX eats it: `\c{c}` and `\c c` are both cedillas. A
+         control symbol is not — `\" a` is a diaeresis on a space, and guessing
+         otherwise would be this pass being cleverer about the author's source
+         than the compiler that produced their PDF. `\vspace` never reaches here
+         at all, because its name is read as the whole run of letters. */
       let at = after
-      if (letterNamed) while (text[at] === ' ') at++
+      if (/^[a-zA-Z]$/.test(name)) while (text[at] === ' ') at++
 
+      /*
+       * What there is to put the mark on, and the three ways to have nothing.
+       *
+       * ## The rule this obeys, which it did not
+       *
+       * A pass that does not recognise a construct must leave it alone. That is
+       * the rule the rest of this file keeps and it slipped in exactly this
+       * branch, three times, all in the same direction: consuming input it had
+       * not understood.
+       *
+       * - A braced argument used to be run back through `readable`, so
+       *   `\"{\emph{a}}` hung a diaeresis on whatever that returned. Only a
+       *   plain letter run, or a dotless letter, is a base.
+       * - An empty group used to reach `accented('')`, which returned the bare
+       *   mark — see the essay there.
+       * - `\i` was matched with `startsWith`, which is also true of `\int` and
+       *   `\imath`, so `\^\int` became `î` followed by a stray `nt`. A dotless
+       *   letter is only dotless when no letter follows it.
+       *
+       * Every one of them read as a typo in the author's writing rather than as
+       * something this app had failed to render, which is the worse of the two
+       * failures: a visible `\^{}` tells a person something went unrendered,
+       * and a diacritic on the wrong letter tells them nothing at all.
+       */
+      let base = ''
+      let upto = at
       if (text[at] === '{') {
         const close = matching(text, at)
-        if (close !== -1) {
-          const inner = text.slice(at + 1, close)
-          const base = DOTLESS[inner.replace(/^\\/, '')] ?? readable(inner)
-          out += accented(base, mark)
-          i = close + 1
-          continue
-        }
-      } else if (text.startsWith('\\i', at) || text.startsWith('\\j', at)) {
-        out += accented(DOTLESS[text[at + 1] as string] as string, mark)
-        i = at + 2
-        continue
+        const inner = close === -1 ? '' : text.slice(at + 1, close)
+        const dotless = inner.startsWith('\\') ? DOTLESS[inner.slice(1)] : undefined
+        if (dotless !== undefined) base = dotless
+        else if (/^[^\\{}]+$/.test(inner)) base = inner
+        if (base) upto = close + 1
+      } else if (text[at] === '\\' && DOTLESS[text[at + 1] ?? ''] !== undefined && !/[a-zA-Z]/.test(text[at + 2] ?? '')) {
+        base = DOTLESS[text[at + 1] as string] as string
+        upto = at + 2
       } else if (/^[a-zA-Z]$/.test(text[at] ?? '')) {
-        out += accented(text[at] as string, mark)
-        i = at + 1
+        base = text[at] as string
+        upto = at + 1
+      }
+
+      if (base) {
+        out += accented(base, mark)
+        i = upto
         continue
       }
+
       /* Nothing to accent. The escape is left exactly as written, which is the
-         rule everywhere else in this file. */
+         rule everywhere else in this file, and the brace group after it — if
+         there is one — is read as ordinary text on the next turn of the scan
+         rather than being swallowed with it. */
       out += text.slice(i, after)
       i = after
       continue

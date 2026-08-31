@@ -187,15 +187,34 @@
  * left the row at the top cut by four pixels — which is the worst possible
  * amount, because it looks deliberate.
  *
- * ## `proximity`, and never `mandatory`
+ * ## `mandatory` where every row fits, `proximity` where one does not
  *
- * `mandatory` says a scroller may never rest anywhere but a snap point, which
- * is a promise this list cannot keep: a note taller than the frame has no
- * position that satisfies it, and a browser resolving that makes the bottom of
- * a long note unreachable. `proximity` snaps when a snap point is near and
- * otherwise leaves the reader alone, which is exactly the sentence this was
- * asked for in — "scrolling the next note to be fully visible when scrolling
- * just a little".
+ * This used to say "`proximity`, and never `mandatory`", and the reason it gave
+ * was right: `mandatory` says a scroller may never rest anywhere but a snap
+ * point, and a note taller than the frame has no such position, so the bottom
+ * of a long note becomes unreachable. That was measured rather than feared —
+ * with `mandatory` on, opening the first note of the thesis makes a 708-pixel
+ * row in a 264-pixel window, and a scroll aimed at its middle (354) was thrown
+ * to 708. A reader cannot read the middle of that note.
+ *
+ * What changed underneath it is that a row is no longer allowed to be a random
+ * height. `notes/room.ts` now clamps a note's body to what the FRAME holds, so
+ * an unopened row is one frameful and never more — which is the condition
+ * `mandatory` needs, and it is now the ordinary case rather than a hope.
+ *
+ * And `proximity` cannot do the job in that layout. It snaps when a snap point
+ * is NEAR, and the browser decides what near means: with 79-pixel rows a
+ * seventy-pixel flick snapped, and with 259-pixel rows the same flick landed
+ * seventy pixels into a note and stayed there — a partial row again, which is
+ * the whole complaint. Under `mandatory` that same flick rests at 259 with the
+ * next note's top exactly at the top of the window.
+ *
+ * So both are used, and which one is a measurement rather than a size: `App`
+ * already marks every row taller than the window, because such a row must not
+ * carry a snap point. If any row is in that state — somebody has opened one, or
+ * a note carries a quote that pushes it over — the scroller loosens to
+ * `proximity` and the reader can rest anywhere. Otherwise it is `mandatory` and
+ * one flick is one note.
  *
  * ## Off in a container with room to roam
  *
@@ -210,10 +229,19 @@
  * chooses to snap, and a reader trying to reach the bottom of that note is then
  * fighting the scroller. There is no CSS for "unless this element is taller
  * than the scrollport", so `App` measures and marks `data-tall`, and this takes
- * the snap point away again.
+ * the snap point away again. The same measurement is what chooses between the
+ * two snap types above.
  */
 [data-snap] {
   scroll-snap-type: y proximity;
+}
+
+/*
+ * Every row fits the window, so resting between two of them is not a thing
+ * anybody needs and a flick that half-turns is the complaint. See above.
+ */
+[data-snap='tight'] {
+  scroll-snap-type: y mandatory;
 }
 
 [data-snap] [data-testid='note'] {

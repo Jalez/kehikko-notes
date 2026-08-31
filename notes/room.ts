@@ -66,7 +66,13 @@ export interface Room {
    * eight lines.
    */
   compact: boolean
-  /** How many lines of the note's own words, or null for all of them. */
+  /**
+   * How many lines of the note's own words, or null for all of them.
+   *
+   * As many as the FRAME holds, rather than a number picked to fit three rows
+   * in. See `linesInFrame`, which is where the owner's "focus on showing one
+   * note fully" is actually decided.
+   */
   bodyLines: number | null
   /** How many lines of the quoted passage, or null for all of them. */
   quoteLines: number | null
@@ -127,6 +133,109 @@ const SHORT = 400
 /** Under this many pixels tall, a form above the list would BE the list. */
 const NO_ROOM_FOR_A_FORM = 450
 
+/**
+ * One line of a note's body, in pixels.
+ *
+ * `text-sm` is 0.875rem on a 1.25rem line, and 1.25rem is 20 pixels at every
+ * root size this page is drawn at. Measured rather than derived, on all four
+ * probe sizes, and it came back 20 on every one of them.
+ */
+const LINE = 20
+
+/**
+ * Everything in a compact row that is not the body, in pixels.
+ *
+ * The badge line, the row's own padding and the gap above the body. Measured
+ * the same way, and it came back as the same number at every size this module
+ * is drawn in — 79 minus 40 at 220x300 and at 320x200, 99 minus 60 at 460x360,
+ * 59 minus 20 for a one-line note — which is why it can be a constant rather
+ * than something the layout has to report back.
+ *
+ * It is the WORST case rather than the common one, and deliberately so since
+ * `view/note.tsx` stopped drawing a badge on a healthy anchor. A row with no
+ * badge on it is 19 pixels of chrome, not 39, so an ordinary row now comes out
+ * twenty pixels short of the window — 239 in a 264-pixel frame — and a row that
+ * DOES carry a badge still fits. Being wrong in the other direction is what
+ * costs something: a row a few pixels taller than the window loses its snap
+ * point to `snappable`, and one flick stops being one note. Twenty pixels of
+ * air on the common row is the cheaper mistake, and it is the one that is only
+ * ever made in a container too small to have any other kind.
+ *
+ * A row with a QUOTE on it is taller than this, because a note somebody typed
+ * carries the passage as well as the words about it. That case is not modelled
+ * here and deliberately: this module is a function of the frame and knows
+ * nothing about any particular note. What it costs is that such a row can be a
+ * little taller than the window, at which point `snappable` takes its snap
+ * point away and it scrolls like an ordinary long note, which is the behaviour
+ * that already exists for a note longer than the frame.
+ */
+const ROW_CHROME = 39
+
+/**
+ * The heading and the page's own padding, above the scroller, in pixels.
+ *
+ * The frame is not the list: the scope, the widen ladder and the press that
+ * writes a note sit outside the scroller on purpose — they are the way back,
+ * and the previous work moved them out so they could not scroll away. Measured
+ * at 36 pixels on the narrow sizes and 40 at 460 wide, where the padding steps
+ * up at the `@sm/container` breakpoint. The larger of the two is used, because
+ * being wrong in this direction leaves a row slightly shorter than the window
+ * and being wrong in the other leaves it slightly taller — and a row taller
+ * than the window is one that loses its snap point.
+ */
+const CROWN = 40
+
+/**
+ * Never fewer than this many lines, whatever the arithmetic says.
+ *
+ * A 150-pixel container is a real thing somebody can drag, and one line of a
+ * sentence is not a note. Below the point where two lines fit, the row is
+ * taller than the window and the reader scrolls — which is honest, and better
+ * than a row that says nothing.
+ */
+const FEWEST = 2
+
+/**
+ * How many lines of one note's body this frame can hold.
+ *
+ * ## The complaint, and what the old rule was actually optimising
+ *
+ * "When there's not enough space in notes — instead of trying to squeeze as
+ * many notes visible at once, it should focus on showing one note fully."
+ *
+ * The rule this replaces was `short && height < 320 ? 2 : 3`, and those numbers
+ * were chosen to fit three rows into a 300-pixel box. They did: `dev/sizes.mjs`
+ * reported three notes fully on screen at 220x300, and that was recorded as the
+ * win of the responsive pass. It was the wrong thing to count. Every one of
+ * those three rows was two lines of a note that wanted twenty, so the probe now
+ * counts `whole` as well — on screen AND not truncated — and the same layout
+ * measured `fully: 3, whole: 0`. Three notes were visible and none of them was
+ * readable.
+ *
+ * So the frame decides, instead of a constant deciding for it: one row is one
+ * frameful, and the notes shorter than that — which in the thesis this was
+ * measured against is most of them, wanting 6, 3 and 7 lines against the first
+ * one's 20 — are simply drawn whole.
+ *
+ * ## Why this is a better answer than not clamping at all
+ *
+ * Dropping the clamp in a short container was tried first and measured worse.
+ * At 220x300 the first note became a 439-pixel row in a 264-pixel window, so
+ * nothing was whole, and — the part that is easy to miss — `snappable` takes
+ * the snap point off any row taller than the window, so a flick landed
+ * seventy pixels into a note instead of at the top of one. The probe printed
+ * `whole: 0, cut: 70`: a partial row again, which is the thing being fixed.
+ *
+ * Fitting the frame keeps the row at or just under the window, which is exactly
+ * the condition `snappable` asks for. One flick is one note. The rest of a note
+ * too long for any window is where it always was, one press away, and that
+ * press is the one already on the row.
+ */
+export function linesInFrame(height: number): number {
+  const forTheBody = height - CROWN - ROW_CHROME
+  return Math.max(FEWEST, Math.floor(forTheBody / LINE))
+}
+
 /** Above this, snapping is a tug with nothing to gain. */
 const TALL_ENOUGH_TO_ROAM = 600
 
@@ -137,10 +246,9 @@ export function roomFor(frame: Frame): Room {
 
   return {
     compact,
-    /* Two lines in a box that holds three rows, three where it holds four.
-       The whole body is one press away and the first two lines are what a
-       reader chooses by. */
-    bodyLines: compact ? (short && frame.height < 320 ? 2 : 3) : null,
+    /* As much of the note as the frame will hold, rather than a fixed two or
+       three lines. See `linesInFrame`. */
+    bodyLines: compact ? linesInFrame(frame.height) : null,
     quoteLines: compact ? 2 : null,
     provenance: !compact,
     where: !compact,
@@ -168,14 +276,30 @@ export const ROOMY: Room = roomFor({ width: 10_000, height: 10_000 })
  *
  * Only if the whole of it fits. A snap point on the start of a row taller than
  * the window is a scroller that pulls a reader back to the top of the note they
- * are trying to read the bottom of — the reason the scroller uses `proximity`
- * and not `mandatory`, one step further: proximity's range is the browser's to
- * choose, and near the start of a long note it chooses to snap.
+ * are trying to read the bottom of.
  *
  * So a long note simply has no snap point, and scrolling through it is
  * ordinary scrolling. The next note along still has one, so the behaviour the
  * person asked for — a small scroll brings the next note fully into view —
  * survives the note that could not have it.
+ *
+ * ## This answer now decides two things, and the second is the snap TYPE
+ *
+ * `bodyLines` clamps a note to what the frame holds, so a row that is taller
+ * than the window is no longer the ordinary case — it is an opened one, or one
+ * carrying a quote. That changed what the scroller can promise. `proximity`
+ * snaps when a snap point is NEAR and the browser decides what near means:
+ * with 79-pixel rows a seventy-pixel flick snapped, and with frame-sized rows
+ * the same flick landed seventy pixels into a note and stayed there, which is
+ * the partial row the whole change is against. Under `mandatory` it rests at
+ * the next note's top exactly.
+ *
+ * `mandatory` cannot be on while a row is taller than the window, and that was
+ * measured rather than assumed: with it on, opening the first note of the
+ * thesis makes a 708-pixel row in a 264-pixel frame, and a scroll aimed at 354
+ * — its middle — was thrown to 708. So `App` asks this question of every row,
+ * and a single `false` loosens the whole scroller back to `proximity`. See the
+ * rules in `index.css`.
  */
 export function snappable(row: number, view: number): boolean {
   if (row <= 0 || view <= 0) return false

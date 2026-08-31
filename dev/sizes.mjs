@@ -19,6 +19,17 @@
  *     to say the scope and the way back out of a narrowed list had left the
  *     frame. It is now 8 or 12 at every size, because the heading is no longer
  *     inside the scroller.
+ *   - `whole`: how many notes are on screen AND not truncated. This is the
+ *     number that replaced `fully` as the thing worth counting. `fully` was
+ *     reported as 3 at 220x300 and treated as the win of the responsive pass;
+ *     when the probe was taught to ask the body element whether it was clipped,
+ *     the same layout measured `fully: 3, whole: 0`. Three notes were on screen
+ *     and every one of them was two lines of a note that wanted twenty, which
+ *     is what the owner was looking at when they asked for one note in full.
+ *   - `write`: what the press that adds a note is called. It is an icon now, so
+ *     its name is an attribute rather than something a person can read off the
+ *     screen, and a run where `named` is null has found the exact failure this
+ *     workspace removed a refresh button for.
  *
  * It also prints what the module ASKED its host for, which the harness reports
  * and then ignores -- a container whose owner has not turned growing on is the
@@ -64,10 +75,22 @@ const MEASURE = `() => {
   const top = own ? el.getBoundingClientRect().top : 0
   const rows = [...document.querySelectorAll('[data-testid="note"]')].map((row) => {
     const box = row.getBoundingClientRect()
-    return { top: Math.round(box.top), h: Math.round(box.height) }
+    /* Whether the note's own words are cut off, asked of the element rather
+       than inferred from the class: a \`line-clamp\` that failed to compile
+       looks identical from the outside to one that was never asked for, and
+       this probe exists to catch exactly the layout nobody looked at. */
+    const body = row.querySelector('[data-testid="body"]')
+    const clipped = body ? body.scrollHeight > body.clientHeight + 1 : false
+    return { top: Math.round(box.top), h: Math.round(box.height), clipped }
   })
   const first = rows.find((row) => row.top + row.h > top + 1)
   const head = document.querySelector('[data-testid="scope"]')?.getBoundingClientRect()
+  /* The one press that adds anything is an icon now, so what it is CALLED is
+     no longer visible and has to be asserted instead of looked at. An icon
+     with neither an aria-label nor a title is a control nobody can name, and
+     this workspace has already removed one for exactly that. */
+  const write = document.querySelector('[data-testid="write"]')
+  const wbox = write?.getBoundingClientRect()
   return {
     view: Math.round(view),
     scrolled: Math.round(el.scrollTop),
@@ -75,8 +98,28 @@ const MEASURE = `() => {
     rows: rows.length,
     heights: rows.slice(0, 3).map((row) => row.h),
     fully: rows.filter((row) => row.top >= top - 1 && row.top + row.h <= top + view + 1).length,
+    /* The number that replaced \`fully\` as the thing worth counting. A row can
+       be entirely on screen and still be two lines of a twenty-line note, and
+       three of those was what the earlier responsive pass reported as its win.
+       \`whole\` counts the rows that are on screen AND not clipped: notes a
+       person can actually read without pressing anything. */
+    whole: rows.filter(
+      (row) => row.top >= top - 1 && row.top + row.h <= top + view + 1 && !row.clipped,
+    ).length,
+    /* Of the rows on screen, how many are showing a truncated body. */
+    clippedOnScreen: rows.filter(
+      (row) => row.top + row.h > top && row.top < top + view && row.clipped,
+    ).length,
     cut: first ? Math.round(top - first.top) : null,
     headTop: head ? Math.round(head.top) : null,
+    write: write
+      ? {
+          named: write.getAttribute('aria-label'),
+          hover: write.getAttribute('title'),
+          text: (write.innerText ?? '').trim(),
+          size: [Math.round(wbox.width), Math.round(wbox.height)],
+        }
+      : null,
     /* Nothing may ever be wider than the frame. See the essay in \`index.css\`. */
     widest: document.documentElement.scrollWidth,
   }

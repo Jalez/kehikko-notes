@@ -59,9 +59,37 @@ function anchored(state: Anchored['anchor']['state'], over: Partial<Note> = {}):
 }
 
 describe('a note says what has become of its anchor, in a word', () => {
-  test('anchored', () => {
+  test('a healthy anchor says nothing at all, because that is the default', () => {
+    /*
+     * The owner: "I don't understand why each note has to have an 'anchored'
+     * badge, I don't understand the value of it." `exact` is the overwhelming
+     * majority verdict, so the word was on nearly every row of nearly every
+     * list — the default spelled out, carrying no information and quietening
+     * the four badges that do.
+     *
+     * Asserted as "no badge on the row at all" rather than "no badge saying
+     * anchored", because an empty badge would pass the weaker test and is the
+     * same complaint one step quieter: a coloured rectangle beside every
+     * healthy note.
+     */
     render(<NoteRow one={anchored('exact')} actions={actions} />)
-    expect(screen.getByText('anchored')).toBeDefined()
+    expect(screen.queryByText('anchored')).toBe(null)
+    expect(document.querySelectorAll('[data-slot="badge"]').length).toBe(0)
+  })
+
+  test('and the sentence under it is gone with it, rather than orphaned', () => {
+    /* "Still points at the words it was written about" was the other half of
+       saying nothing has happened. */
+    render(<NoteRow one={anchored('exact')} actions={actions} />)
+    expect(screen.queryByTestId('anchor-said')).toBe(null)
+  })
+
+  test('an anchor this app could not check keeps its word, which is not the same as fine', () => {
+    /* The failure the paragraph above must not cause. Drawing nothing for
+       `unverified` would tell a reader the one thing `anchor.ts` refuses to
+       say: that a note it could not look at is a note that is fine. */
+    render(<NoteRow one={anchored('unverified')} actions={actions} />)
+    expect(screen.getByText('unchecked')).toBeDefined()
   })
 
   test('moved, with the sentence explaining it', () => {
@@ -165,7 +193,6 @@ describe('nothing long is ever put in a badge', () => {
     expect(badges.length).toBeGreaterThan(0)
     for (const badge of badges) {
       expect([
-        'anchored',
         'moved',
         'adrift',
         'unchecked',
