@@ -238,3 +238,28 @@ describe('the screens that are not a list of notes name why they are there', () 
     expect(screen.queryByRole('button')).toBeNull()
   })
 })
+
+describe('the note the canvas is pointed at', () => {
+  /*
+   * The mark is what makes the press readable. Before it, the only sign a press
+   * had done anything was the list collapsing to one row -- which was also how
+   * the reader lost the list. See `notes/pointed.ts`.
+   */
+  const points = { ...actions, point: () => {} }
+
+  test('is marked', () => {
+    const { container } = render(<NoteRow one={anchored('exact')} actions={points} pointed />)
+    expect(container.querySelector('[data-pointed]')).not.toBeNull()
+  })
+
+  test('and every other row is not', () => {
+    const { container } = render(<NoteRow one={anchored('exact')} actions={points} />)
+    expect(container.querySelector('[data-pointed]')).toBeNull()
+  })
+
+  /* A row nothing can point at must not claim to be the pointed one. */
+  test('an unframed row is never marked', () => {
+    const { container } = render(<NoteRow one={anchored('exact')} actions={actions} />)
+    expect(container.querySelector('[data-pointed]')).toBeNull()
+  })
+})

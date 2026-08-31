@@ -54,7 +54,16 @@ export interface NoteActions {
   busy: boolean
 }
 
-export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions }) {
+export function NoteRow({
+  one,
+  actions,
+  pointed = false,
+}: {
+  one: Anchored
+  actions: NoteActions
+  /** This is the note the canvas is currently pointed at, by a press here. */
+  pointed?: boolean
+}) {
   const { note, anchor } = one
   const [replying, setReplying] = useState(false)
   const [draft, setDraft] = useState('')
@@ -96,9 +105,18 @@ export function NoteRow({ one, actions }: { one: Anchored; actions: NoteActions 
         if ((event.target as HTMLElement).closest('button, a, textarea, input, form')) return
         press()
       }}
+      data-pointed={pointed ? '1' : undefined}
+      /*
+       * The pointed row is marked, and marking it is the whole reason the list
+       * no longer collapses when you press one. A press moves the paper, and
+       * without a mark on the row nothing on this side said which note the
+       * paper had been moved to — so the only evidence a press had worked was
+       * the list shrinking to one, which was also how you lost the list.
+       */
       className={
         'min-w-0 border-b border-border/60 py-2 last:border-b-0'
         + (actions.point ? ' cursor-pointer hover:bg-muted/40' : '')
+        + (pointed ? ' -mx-1 border-l-2 border-l-foreground bg-muted/60 px-1' : '')
       }
     >
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">

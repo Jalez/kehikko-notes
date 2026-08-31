@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ID } from '../manifest.ts'
+import { keyOf, shownAt as heldAt, standing, type Pointed } from '../notes/pointed.ts'
 import { saidOf, scopeOf } from '../notes/scope.ts'
 
 import { Button } from '@/components/ui/button.tsx'
 import { edit, look, type Anchored, type Ask, type Change, type Looked } from '@/store/ask.ts'
 import { NoteRow, type NoteActions } from '@/view/note.tsx'
 import { Listening, NoProject, Nowhere, Trouble } from '@/view/screens.tsx'
-import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
+import { useRoadmap, type GotoHandler, type Passage } from '@/wire/use-roadmap.ts'
 
 /**
  * The page.
@@ -63,6 +64,40 @@ export function App() {
   /** Whether the notes this app has stopped lifting are on screen. One press. */
   const [showWithdrawn, setShowWithdrawn] = useState(false)
 
+  /**
+   * The note this container pointed the canvas at, and what the list was
+   * showing when it did.
+   *
+   * ## Pressing a note used to be a one-way door
+   *
+   * A press points every container at that note's passage, which is the whole
+   * point of it. But the list is scoped BY that passage -- it follows the
+   * reader -- so pointing at a note narrowed the list to that one note, and the
+   * other notes were gone. The way back was a ghost button at the bottom
+   * labelled "every note in this project", which is a different scope from the
+   * one that had just been lost. Somebody who pressed a note to look at it in
+   * the paper could not get back to the list they pressed it from.
+   *
+   * ## Following the reader and being the reader are different acts
+   *
+   * The list follows the reader because somebody moving through a document
+   * should see the notes where they are standing. That is right, and it is not
+   * what a press from this list is. A press is this container MOVING the reader,
+   * on purpose, to somewhere it is already showing -- and a view that re-scoped
+   * itself to the thing it just sent you to is a view that answers a question
+   * nobody asked, by discarding the one they were reading.
+   *
+   * So while the canvas is pointed where this container put it, the list holds
+   * the scope it had, and the note is marked instead. The moment a passage
+   * arrives that this container did not publish, the reader has moved on their
+   * own and the list follows them again.
+   *
+   * This is also what the person asking for it described -- "when you click on
+   * a note shouldn't it highlight and show what its target from the paper?" --
+   * a highlight and a moved paper, not a new list.
+   */
+  const [pointed, setPointed] = useState<Pointed<Passage> | null>(null)
+
   const onGoto = useCallback<GotoHandler>((message, answer) => {
     /* A `goto` may name an epic, a step, or a reference. This container draws notes
        against a place in a document, and none of those three is one — saying so
@@ -86,7 +121,27 @@ export function App() {
    * given at the door come from the same `saidOf`, so the two cannot describe
    * different lists to each other.
    */
-  const scope = useMemo(() => scopeOf(passage), [passage])
+  /**
+   * What the list is scoped to, which is the passage EXCEPT while the canvas is
+   * pointed where this container pointed it. See `pointed` above.
+   */
+  const shownAt = useMemo(() => heldAt(pointed, passage), [pointed, passage])
+
+  const scope = useMemo(() => scopeOf(shownAt), [shownAt])
+
+  /* Read inside the press, which is why it is a ref: `actions` is memoised on
+     what a press NEEDS, and adding the current scope to that list would rebuild
+     every row's handlers on every move of the reader. */
+  const shownAtRef = useRef<Passage | null>(null)
+  shownAtRef.current = shownAt
+
+  /*
+   * A passage this container did not publish means the reader moved themselves,
+   * and the list goes back to following them.
+   */
+  useEffect(() => {
+    if (pointed && !standing(pointed, passage)) setPointed(null)
+  }, [passage, pointed])
 
   /*
    * A pointing reader clears the widened view.
@@ -98,8 +153,12 @@ export function App() {
    * being answered better.
    */
   useEffect(() => {
-    if (passage) setEverything(false)
-  }, [passage])
+    /* Unless it is this container's own press arriving back. A press is not a
+       reader answering "nothing is pointing"; it is this list sending them
+       somewhere, and it must not throw away the widened view it was pressed
+       from any more than it throws away a narrow one. */
+    if (passage && !standing(pointed, passage)) setEverything(false)
+  }, [passage, pointed])
 
   /*
    * No project, no question.
@@ -122,18 +181,18 @@ export function App() {
     if (everything) {
       return { project, projectPath, path: null, page: null, from: null, to: null, everything: true, resolved: withResolved }
     }
-    if (!passage) return null
+    if (!shownAt) return null
     return {
       project,
       projectPath,
-      path: passage.path,
-      page: passage.page,
-      from: passage.from,
-      to: passage.to,
+      path: shownAt.path,
+      page: shownAt.page,
+      from: shownAt.from,
+      to: shownAt.to,
       everything: false,
       resolved: withResolved,
     }
-  }, [where, everything, passage, project, projectPath, withResolved])
+  }, [where, everything, shownAt, project, projectPath, withResolved])
 
   /*
    * Re-read on every change of scope, and after every write.
@@ -242,14 +301,21 @@ export function App() {
        * protocol's own argument for the field.
        */
       point: where === 'hosted'
-        ? (one: Anchored) =>
-            point({
+        ? (one: Anchored) => {
+            const at = {
               path: one.note.path,
               page: one.note.page,
               from: one.anchor.from,
               to: one.anchor.to,
               quoted: one.note.quoted.slice(0, 2000),
-            })
+            }
+            /* What the list is showing RIGHT NOW, which is not the same as the
+               live passage once a previous press is standing -- pressing a
+               second note from a held list must hold the same list, not the
+               passage the first press published. */
+            setPointed({ id: one.note.id, at: keyOf(at), was: shownAtRef.current })
+            point(at)
+          }
         : null,
       busy,
     }),
@@ -292,8 +358,7 @@ export function App() {
 
       {looked && !looked.verified && (looked.shown.length > 0 || looked.adrift.length > 0) ? (
         <p data-testid="unchecked" className="min-w-0 text-[0.7rem] text-muted-foreground">
-          This app could not open any of these documents, so no anchor below has been checked. It is showing the words
-          each note was written about, not the words that are there now.
+          These documents could not be opened: each note shows the words it was written about, not what is there now.
         </p>
       ) : null}
 
@@ -343,7 +408,7 @@ export function App() {
       {looked?.shown.length ? (
         <ul className="min-w-0">
           {looked.shown.map((one) => (
-            <NoteRow key={one.note.id} one={one} actions={actions} />
+            <NoteRow key={one.note.id} one={one} actions={actions} pointed={pointed?.id === one.note.id} />
           ))}
         </ul>
       ) : (
@@ -366,11 +431,11 @@ export function App() {
       {looked?.adrift.length ? (
         <section data-testid="adrift-group" className="min-w-0 space-y-1">
           <p className="min-w-0 text-xs font-medium text-adrift">
-            {looked.adrift.length} note{looked.adrift.length === 1 ? '' : 's'} on this document cannot be placed in it
+            {looked.adrift.length} note{looked.adrift.length === 1 ? '' : 's'} can no longer be placed in this document
           </p>
           <ul className="min-w-0">
             {looked.adrift.map((one) => (
-              <NoteRow key={one.note.id} one={one} actions={actions} />
+              <NoteRow key={one.note.id} one={one} actions={actions} pointed={pointed?.id === one.note.id} />
             ))}
           </ul>
         </section>
@@ -395,9 +460,7 @@ export function App() {
       {looked?.withdrawn.length ? (
         <section data-testid="withdrawn-group" className="min-w-0 space-y-1">
           <p className="min-w-0 text-[0.7rem] text-muted-foreground">
-            {looked.withdrawn.length} note{looked.withdrawn.length === 1 ? '' : 's'} here came out of this file
-            {"\u2019"}s build rather than its argument, and {looked.withdrawn.length === 1 ? 'is' : 'are'} no longer
-            read as annotation.
+            {looked.withdrawn.length} from this file{"\u2019"}s build rather than its argument.
           </p>
           <Button size="container" variant="ghost" onClick={() => setShowWithdrawn((was) => !was)}>
             {showWithdrawn ? 'hide them' : 'show them'}
@@ -405,7 +468,7 @@ export function App() {
           {showWithdrawn ? (
             <ul className="min-w-0">
               {looked.withdrawn.map((one) => (
-                <NoteRow key={one.note.id} one={one} actions={actions} />
+                <NoteRow key={one.note.id} one={one} actions={actions} pointed={pointed?.id === one.note.id} />
               ))}
             </ul>
           ) : null}
@@ -414,8 +477,7 @@ export function App() {
 
       {looked?.elsewhere ? (
         <p data-testid="elsewhere" className="min-w-0 text-[0.7rem] text-muted-foreground">
-          {looked.elsewhere} more note{looked.elsewhere === 1 ? ' is' : 's are'} on this document, outside what is
-          selected.
+          {looked.elsewhere} more on this document, outside this selection.
         </p>
       ) : null}
 
