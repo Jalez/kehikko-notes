@@ -61,6 +61,10 @@ const SOURCE = [
   '',
   'A paragraph. \\todo{cite Lamport here}',
   '',
+  /* Inline markup, for the third rule change this file records: a body that
+     used to be shown as source and is now read. See `readable.ts`. */
+  '\\missing{write the Finnish \\emph{tiivistelm\\"a}}',
+  '',
   '\\end{document}',
   '',
 ].join('\n')
@@ -135,7 +139,9 @@ describe('a rule line is a drawing and not a sentence', () => {
 describe('the preamble is the build and not the paper', () => {
   test('nothing before \\begin{document} is lifted, macro definitions least of all', () => {
     const { kept, withdrawn } = readAnnotations(SOURCE)
-    expect(kept).toHaveLength(2)
+    /* Three in the body: the chapter's comment run, the `\todo`, and the
+       `\missing` carrying inline markup that the last test here is about. */
+    expect(kept).toHaveLength(3)
     expect(withdrawn).toHaveLength(3)
     /* The third is the `\todo` INSIDE `\newcommand{\missing}`, whose whole text
        is `\textbf{MISSING:} #1`. That is a definition of the note command, not
@@ -224,6 +230,25 @@ describe('the notes lifted under the old rules', () => {
     expect(comments[0]?.source?.reread?.was).toBe(wasBody)
   })
 
+  test('an annotation whose MARKUP this app now reads is the same note, and says so', () => {
+    /* The same reconciliation as the test above, for the second rule change to
+       need it. `\emph{tiivistelm\"a}` used to reach the container as source and now
+       reads as a Finnish word; the file did not change, so this must adopt the
+       stored note rather than fork it — and must say what it used to show,
+       because the replies underneath were written against those words. */
+    const markup = readAnnotations(SOURCE).kept.find((one) => one.source.startsWith('\\missing'))!
+    const wasBody = 'write the Finnish \\emph{tiivistelm\\"a}'
+    plantOldStyle(markup, wasBody, `${MAIN}#todo:${fingerprint(wasBody)}`)
+
+    const done = reread()
+    expect(done.said).toContain('re-read from the source')
+
+    const mine = read(project).store.notes.filter((one) => one.quoted === markup.source)
+    expect(mine).toHaveLength(1)
+    expect(mine[0]?.body).toBe('write the Finnish tiivistelmä')
+    expect(mine[0]?.source?.reread?.was).toBe(wasBody)
+  })
+
   test('an author REWORDING an annotation still forks, which is the case this must not eat', () => {
     /* The dangerous neighbour of the test above. `\todo{cite Lamport here}` and
        `\todo{cite Fischer here}` are the same length at the same offsets, so a
@@ -239,8 +264,14 @@ describe('the notes lifted under the old rules', () => {
     )
     reread()
     const todos = read(project).store.notes.filter((one) => one.source?.kind === 'todo')
-    expect(todos).toHaveLength(2)
-    expect(todos.map((one) => one.body).sort()).toEqual(['cite Fischer here', 'cite Lamport here'])
+    /* The planted one, the one it did not adopt, and the `\missing` this
+       fixture also holds. */
+    expect(todos).toHaveLength(3)
+    expect(todos.map((one) => one.body).sort()).toEqual([
+      'cite Fischer here',
+      'cite Lamport here',
+      'write the Finnish tiivistelmä',
+    ])
     expect(todos.find((one) => one.body === 'cite Fischer here')?.source?.present).toBe(false)
   })
 

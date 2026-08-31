@@ -27,9 +27,19 @@
  * It is also independently testable against real `.tex` on disk, which a
  * cross-module dependency would not be.
  *
+ * That paragraph said "does not have to agree about anything a reader sees",
+ * and `readable.ts` is what it costs to hold to it: a small inline pass of this
+ * module's own, so that a note body reads as prose rather than as source. The
+ * question of sharing that pass with Paper was asked properly and answered no,
+ * and the whole argument is at the top of that file rather than repeated here.
+ * The bound it works under is the one this paragraph sets — it is a readability
+ * pass over one short body, not a document renderer, and everything it does not
+ * recognise it leaves exactly as the author wrote it.
+ *
  * Nothing here touches a disk or imports `node:` anything — it takes a string —
  * so it stays importable from the page for the reason `shape.ts` does.
  */
+import { readable } from './readable.ts'
 
 /** Which construct an annotation came out of. */
 export type AnnotationKind = 'todo' | 'comment'
@@ -38,8 +48,15 @@ export interface Annotation {
   kind: AnnotationKind
   /**
    * The words the author wrote, readable: a comment run with its `%` markers
-   * stripped, a `\todo{…}` with its wrapper gone. This becomes the note's body
-   * and is what the stable key is derived FROM.
+   * stripped, a `\todo{…}` with its wrapper gone, and the inline markup INSIDE
+   * either of those read rather than shown — `\emph{x}` is `x` and `\"a` is
+   * `ä`. See `readable.ts`, which is the whole of that and its bounds.
+   *
+   * This becomes the note's body and is what the stable key is derived FROM,
+   * which is why changing how it is read is not a free act: see the essay on
+   * `sameConstruct` in `keep.ts`, where a note whose body this app now reads
+   * differently is adopted by its `quoted` slice and records a `reread` rather
+   * than forking.
    */
   text: string
   /** First byte of the construct in the file, wrapper included. */
@@ -269,11 +286,12 @@ function commentRuns(source: string): Annotation[] {
     /* The rules taken out and the sentences between them kept — see `isRule`.
        Done on the way into the text and never to `from`, `to` or `source`,
        which go on describing the construct exactly as it sits in the file. */
-    const text = held
-      .filter((line) => !isRule(line))
-      .join('\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
+    const text = readable(
+      held
+        .filter((line) => !isRule(line))
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n'),
+    ).trim()
     if (saysSomething(text)) {
       out.push({ kind: 'comment', text, from: runFrom, to: runTo, source: source.slice(runFrom, runTo) })
     }
@@ -327,7 +345,7 @@ function todoMacros(source: string): Annotation[] {
     const open = match.index + match[0].length - 1
     const close = matching(source, open)
     const to = close === -1 ? source.length : close + 1
-    const text = source.slice(open + 1, close === -1 ? source.length : close).trim()
+    const text = readable(source.slice(open + 1, close === -1 ? source.length : close)).trim()
     if (!saysSomething(text)) continue
     out.push({ kind: 'todo', text, from: match.index, to, source: source.slice(match.index, to) })
     /* Resume after the whole macro, so a `\todo{}` nested inside another is not
