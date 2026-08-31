@@ -30,8 +30,6 @@ const TO = FROM + 'A module is one origin or it is nothing.'.length
 function note(over: Partial<Note> = {}): Note {
   return {
     id: 'n1',
-    project: 'thesis',
-    projectPath: '/w/thesis',
     path: '/w/thesis/chapters/bridge.tex',
     page: 3,
     from: FROM,

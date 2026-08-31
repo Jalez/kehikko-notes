@@ -4,9 +4,9 @@ import { ID } from '../manifest.ts'
 import { saidOf, scopeOf } from '../notes/scope.ts'
 
 import { Button } from '@/components/ui/button.tsx'
-import { edit, look, type Anchored, type Ask, type Looked } from '@/store/ask.ts'
+import { edit, look, type Anchored, type Ask, type Change, type Looked } from '@/store/ask.ts'
 import { NoteRow, type NoteActions } from '@/view/note.tsx'
-import { Listening, Nowhere, Trouble, Unhosted } from '@/view/screens.tsx'
+import { Listening, NoProject, Nowhere, Trouble } from '@/view/screens.tsx'
 import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
 
 /**
@@ -49,7 +49,8 @@ import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
  * `summary` off it as a tooltip. A page that also printed "Notes" at the top of
  * itself would be saying the name twice and spending a fixed strip of a
  * 340-pixel-tall pane on the repetition. Unframed there is no pane header, so
- * the heading stays — see `Unhosted`.
+ * the heading stays — see `NoProject`, which is the only screen an unframed
+ * page can reach now that a project's notes live in that project.
  */
 export function App() {
   const [looked, setLooked] = useState<Looked | null>(null)
@@ -100,8 +101,24 @@ export function App() {
     if (passage) setEverything(false)
   }, [passage])
 
+  /*
+   * No project, no question.
+   *
+   * `projectPath` is the address of the file this app would open — see
+   * `store.ts` — so an ask without one is not a coarser question, it is a
+   * question about no file at all. The page therefore builds no `Ask` until it
+   * has a path, and `NoProject` is drawn instead. The type says so as well:
+   * `Ask.projectPath` is not nullable, so this is the one place the null can be
+   * dealt with and it cannot leak past here.
+   *
+   * `projectPath` is in the dependency list, so a reader moved to another
+   * project on the same canvas gets a new `Ask`, a new fetch, and that
+   * project's notes — live, with no reload. That is the whole reason the host
+   * sends it on every context change rather than once at startup.
+   */
   const ask: Ask | null = useMemo(() => {
     if (where === 'listening') return null
+    if (!projectPath) return null
     if (everything) {
       return { project, projectPath, path: null, page: null, from: null, to: null, everything: true, resolved: withResolved }
     }
@@ -151,16 +168,35 @@ export function App() {
     }
   }, [ask, round])
 
+  /*
+   * Every write carries the project, taken from the context AT THE MOMENT OF
+   * THE PRESS.
+   *
+   * Not from whatever the last read was against, which would be the same value
+   * almost always and the wrong one exactly when it matters: a reader who moves
+   * to another project while a reply box is open would post that reply into the
+   * store they came from. `projectPath` is a dependency of this callback for
+   * that reason, so a press always carries where the page is standing now.
+   *
+   * The guard is not defensive; it is the type. `Edit` requires a path, and
+   * there is no screen with a press on it when there is no project — see
+   * `NoProject` — so this can only be reached by a bug, and it refuses rather
+   * than sending a request the door would have to refuse for it.
+   */
   const write = useCallback(
-    async (change: Parameters<typeof edit>[0]) => {
+    async (change: Change) => {
+      if (!projectPath) {
+        setRefused('Nothing has said which project this is, so there is nowhere to write.')
+        return false
+      }
       setBusy(true)
-      const answer = await edit(change)
+      const answer = await edit({ ...change, projectPath })
       setBusy(false)
       setRefused(answer.ok ? null : answer.error)
       setRound((was) => was + 1)
       return answer.ok
     },
-    [],
+    [projectPath],
   )
 
   const actions: NoteActions = useMemo(
@@ -230,7 +266,10 @@ export function App() {
   }, [resize, looked, refused, where])
 
   if (where === 'listening') return <Listening />
-  if (where === 'unhosted' && !everything) return <Unhosted onEverything={() => setEverything(true)} />
+  /* Before every other screen, because it is the one that says there is no
+     store at all. `Nowhere` offers a press that widens to the project, and
+     offering it here would be offering to read a file that does not exist. */
+  if (!projectPath) return <NoProject unhosted={where === 'unhosted'} />
   if (looked?.trouble) return <Trouble said={looked.trouble} />
   if (!ask) return <Nowhere project={project} onEverything={() => setEverything(true)} />
 
@@ -266,8 +305,6 @@ export function App() {
             if (!draft.trim() || !passage) return
             void write({
               op: 'add',
-              project,
-              projectPath,
               path: passage.path,
               page: passage.page,
               from: passage.from,

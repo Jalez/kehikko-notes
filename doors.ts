@@ -1,4 +1,7 @@
+import { KEHIKOT_DIR, moduleFolder } from 'roadmap-module-protocol'
+
 import { ID, MANIFEST, VERSION } from './manifest.ts'
+import { FILE } from './store.ts'
 import { resolveAll, type Anchored } from './notes/anchor.ts'
 import { change, count, howMany, notesOf, str, type Op } from './notes/keep.ts'
 import { narrow, pathOf, saidOf, scopeOf, type Narrowed, type Scope } from './notes/scope.ts'
@@ -79,24 +82,42 @@ const AUTHOR = 'the author, in the source'
  * ------------------------------------------------------------------ */
 
 /**
- * How a caller says which project it means, written once because three tools
- * would otherwise say it three slightly different ways.
+ * How a caller says which project it means, written once because four tools
+ * would otherwise say it four slightly different ways.
  *
- * Both fields, because the store partitions on both — the path where there is
- * one, the name otherwise. A caller that sends neither is asking about the pile
- * of notes nobody ever said a project about, which is a real question and not
- * an error; see `projectKey`.
+ * ## One field now, and it is required rather than merely helpful
+ *
+ * There used to be two — `project`, the name, and `projectPath`, the folder —
+ * because the store partitioned on the pair. It does not any more: a project's
+ * notes live in `<projectPath>/.kehikot/notes/notes.json`, so the folder is not a
+ * hint about which pile to filter, it is the ADDRESS OF THE FILE. A name cannot
+ * address a file, so `project` is gone rather than deprecated: nothing here
+ * stores it and nothing reads it, and leaving it in the schema would invite an
+ * agent to send the one argument that no longer does anything.
+ *
+ * And the path is REQUIRED, where sending neither field used to be a legitimate
+ * question about the pile of notes nobody had attributed to a project. There is
+ * no such pile now, because there is no file that could hold one. So a call
+ * without a path is a call this app cannot answer, and every default it might
+ * invent is wrong in a different way:
+ *
+ * - `process.cwd()` is THIS module's own directory. Notes would be filed under
+ *   `/Users/…/kehikko-notes` and no pane would ever show one.
+ * - "wherever the last person was looking" is state this app deliberately does
+ *   not keep, and would mean an agent's notes landing in whichever project
+ *   somebody else happened to be standing in.
+ * - Nowhere at all is notes going somewhere to be invisible.
+ *
+ * So it is refused, in a sentence that names the argument to send. An agent
+ * being asked about a document already knows which project that document is in.
  */
 const PROJECT_PROPERTIES = {
-  project: {
-    type: 'string',
-    description: 'What the project is called, as the roadmap names it. Used only when no path is given.',
-  },
   projectPath: {
     type: 'string',
     description:
-      'The absolute directory the project lives in. This is what notes are actually partitioned by, so send it '
-      + 'whenever you have it — two projects with a chapters/intro.tex are otherwise one pile.',
+      'The absolute directory the project lives in. Required. Notes are kept inside the project they are about, at '
+      + '<projectPath>/.kehikot/notes/notes.json, so this names the file to open — an address, not a filter — and there is '
+      + 'no answer without it.',
   },
 } as const
 
@@ -121,11 +142,24 @@ const PLACE_PROPERTIES = {
 } as const
 
 interface Asked {
-  project: string | null
-  projectPath: string | null
+  projectPath: string
   scope: Scope
   everything: boolean
 }
+
+/**
+ * The refusal for a call that did not say which project, in one place.
+ *
+ * At the door rather than in the store, because the store's own `NOWHERE`
+ * addresses the page — "open a project on this canvas" — and this addresses an
+ * agent, which has an argument to send instead. Two audiences, two sentences,
+ * and each one names the remedy the reader actually has.
+ */
+const NO_PROJECT =
+  'That did not say which project. Notes live inside the project they are about, at '
+  + '<projectPath>/.kehikot/notes/notes.json, so projectPath is the address of the file to open and there is no answer '
+  + 'without it. This app will not guess: every folder it could pick is one where a note would be written and never '
+  + 'seen again. Send the absolute directory of the project the document is in.'
 
 /**
  * What a caller asked to see, or a sentence saying why that was not a question.
@@ -133,10 +167,15 @@ interface Asked {
  * The scope comes from the same `scopeOf` the page uses over the same four
  * fields, so an agent asking "what is on page 7" and a reader looking at page 7
  * are answered from one definition of what that means.
+ *
+ * The project is checked FIRST, before the scope, because it is the one refusal
+ * that is about where rather than about what: telling somebody their range is
+ * malformed when the real problem is that no project was named would send them
+ * to fix the wrong argument.
  */
 function asked(args: Record<string, unknown>): Asked | string {
-  const project = str(args.project, 120) || null
-  const projectPath = str(args.projectPath, MAX_PATH) || null
+  const projectPath = str(args.projectPath, MAX_PATH)
+  if (!projectPath) return NO_PROJECT
   const everything = args.everything === true || args.everything === 'true'
   const path = str(args.path, MAX_PATH)
 
@@ -147,7 +186,7 @@ function asked(args: Record<string, unknown>): Asked | string {
         + 'give path, or everything: true to see the whole project at once.'
       )
     }
-    return { project, projectPath, scope: { kind: 'everything' }, everything: true }
+    return { projectPath, scope: { kind: 'everything' }, everything: true }
   }
 
   const page = args.page === undefined || args.page === null || args.page === '' ? null : count(args.page)
@@ -170,7 +209,6 @@ function asked(args: Record<string, unknown>): Asked | string {
   if (from !== null && to !== null && to <= from) return 'A passage ends after it starts. Nothing was read.'
 
   return {
-    project,
     projectPath,
     scope: scopeOf({ path, page, from, to, quoted: '' }),
     everything: false,
@@ -186,14 +224,15 @@ export interface Looked {
 }
 
 /**
- * One screen's worth of notes: partitioned by project, resolved against disk,
+ * One screen's worth of notes: one project's store, resolved against disk,
  * narrowed to the scope.
  *
- * The three steps are in this order for a reason. Partitioning first means no
- * other project's document is ever opened. Resolving before narrowing means the
- * range test runs against where a note points NOW, so an edit above the reader
- * does not empty the pane — and means a note whose anchor is gone is known to be
- * gone before anything decides whether to show it.
+ * The steps are in this order for a reason. The project decides which FILE is
+ * opened, so no other project's notes are ever in hand to be filtered wrongly
+ * and no other project's document is ever opened. Resolving before narrowing
+ * means the range test runs against where a note points NOW, so an edit above
+ * the reader does not empty the pane — and means a note whose anchor is gone is
+ * known to be gone before anything decides whether to show it.
  */
 export function look(asked: Asked, includeResolved: boolean): Looked {
   /**
@@ -218,10 +257,10 @@ export function look(asked: Asked, includeResolved: boolean): Looked {
   const path = pathOf(asked.scope)
   const read = readerFor(asked.projectPath)
   if (path) {
-    ingestSource({ project: asked.project, projectPath: asked.projectPath, path }, read, AUTHOR)
+    ingestSource({ projectPath: asked.projectPath, path }, read, AUTHOR)
   }
 
-  const { notes, trouble } = notesOf({ project: asked.project, projectPath: asked.projectPath })
+  const { notes, trouble } = notesOf(asked.projectPath)
   const wanted = includeResolved ? notes : notes.filter((one) => !one.resolved)
   const anchored = resolveAll(wanted, read)
   const verified = anchored.some((one) => one.anchor.state === 'exact' || one.anchor.state === 'moved' || one.anchor.state === 'adrift')
@@ -271,6 +310,7 @@ function tools() {
           everything: { type: 'boolean', description: 'Every note in the project, ignoring path, page and range.' },
           include_resolved: { type: 'boolean', description: 'Show notes somebody has already closed. Defaults to false.' },
         },
+        required: ['projectPath'],
       },
     },
     {
@@ -289,7 +329,7 @@ function tools() {
           body: { type: 'string', description: `What you have to say about it. Up to ${MAX_BODY} characters.` },
           agent: { type: 'string', description: 'Your own name, so the note says who wrote it' },
         },
-        required: ['path', 'body'],
+        required: ['projectPath', 'path', 'body'],
       },
     },
     {
@@ -301,11 +341,12 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          ...PROJECT_PROPERTIES,
           note: { type: 'string', description: 'The note id, as the notes tool prints it' },
           body: { type: 'string', description: `What you have to say. Up to ${MAX_BODY} characters.` },
           agent: { type: 'string' },
         },
-        required: ['note', 'body'],
+        required: ['projectPath', 'note', 'body'],
       },
     },
     {
@@ -318,11 +359,12 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          ...PROJECT_PROPERTIES,
           note: { type: 'string', description: 'The note id' },
           done: { type: 'boolean', description: 'Defaults to true' },
           agent: { type: 'string' },
         },
-        required: ['note'],
+        required: ['projectPath', 'note'],
       },
     },
     {
@@ -335,13 +377,14 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          ...PROJECT_PROPERTIES,
           note: { type: 'string', description: 'The note id' },
           from: { type: 'integer', description: 'First byte of the passage now' },
           to: { type: 'integer', description: 'One past the last byte of it now' },
           quoted: { type: 'string', description: 'What is at that range now, verbatim' },
           agent: { type: 'string' },
         },
-        required: ['note', 'from', 'to', 'quoted'],
+        required: ['projectPath', 'note', 'from', 'to', 'quoted'],
       },
     },
     {
@@ -360,7 +403,7 @@ function tools() {
           ...PROJECT_PROPERTIES,
           path: { type: 'string', description: 'Absolute path of the .tex file to read' },
         },
-        required: ['path'],
+        required: ['projectPath', 'path'],
       },
     },
   ]
@@ -492,8 +535,6 @@ function call(name: string, args: Record<string, unknown>): string {
     const scope = ask.scope
     const op: Op = {
       op: 'add',
-      project: ask.project,
-      projectPath: ask.projectPath,
       path: scope.path,
       page: scope.kind === 'page' ? scope.page : scope.kind === 'passage' ? scope.page : null,
       from: scope.kind === 'passage' ? scope.from : null,
@@ -503,22 +544,22 @@ function call(name: string, args: Record<string, unknown>): string {
       by,
       viaMcp: true,
     }
-    const out = change(op)
+    const out = change(ask.projectPath, op)
     if (!out.ok) throw new Error(out.error)
     return `${out.said}, as ${out.id}.\n\n${lookText(look(ask, false))}`
   }
 
   if (name === 'read_source_notes') {
+    const projectPath = str(args.projectPath, MAX_PATH)
+    if (!projectPath) throw new Error(NO_PROJECT)
     const path = str(args.path, MAX_PATH)
     if (!path) throw new Error('read_source_notes needs the absolute path of the document to read.')
-    const project = str(args.project, 120) || null
-    const projectPath = str(args.projectPath, MAX_PATH) || null
     /* `force`, because a tool call means "again, now". The guard that skips an
        unchanged file is there so that a person scrolling does not cause work;
        an agent that has just edited the file and is asking explicitly has told
        this app more than the file's length can. */
     forgetReads()
-    const done = ingestSource({ project, projectPath, path }, readerFor(projectPath), AUTHOR, true)
+    const done = ingestSource({ projectPath, path }, readerFor(projectPath), AUTHOR, true)
     if (done.said === null) {
       throw new Error(
         `This app could not open ${path}. It reads only inside the roots it was started with — NOTES_ROOTS, or the `
@@ -526,10 +567,18 @@ function call(name: string, args: Record<string, unknown>): string {
         + 'changed.',
       )
     }
-    const ask = asked({ project, projectPath, path })
+    const ask = asked({ projectPath, path })
     if (typeof ask === 'string') throw new Error(ask)
     return `${done.said}\n\n${lookText(look(ask, false))}`
   }
+
+  /* The three tools that address an existing note by id. They need the project
+     too, and that is new: an id names a note INSIDE one project's file, so
+     without the path there is no file to look in. It was possible before only
+     because there was one file holding everybody's notes — which is exactly the
+     arrangement this change removed. */
+  const projectPath = str(args.projectPath, MAX_PATH)
+  if (!projectPath) throw new Error(NO_PROJECT)
 
   const id = str(args.note, MAX_ID)
   if (!id) {
@@ -540,13 +589,13 @@ function call(name: string, args: Record<string, unknown>): string {
   }
 
   if (name === 'reply_to_note') {
-    const out = change({ op: 'reply', id, body: str(args.body, MAX_BODY), by, viaMcp: true })
+    const out = change(projectPath, { op: 'reply', id, body: str(args.body, MAX_BODY), by, viaMcp: true })
     if (!out.ok) throw new Error(out.error)
     return out.said
   }
 
   if (name === 'resolve_note') {
-    const out = change({ op: 'resolve', id, done: args.done !== false, by, viaMcp: true })
+    const out = change(projectPath, { op: 'resolve', id, done: args.done !== false, by, viaMcp: true })
     if (!out.ok) throw new Error(out.error)
     return out.said
   }
@@ -560,7 +609,7 @@ function call(name: string, args: Record<string, unknown>): string {
       + 'would be moving a note to a place nobody named. Nothing was moved.',
     )
   }
-  const out = change({ op: 'reanchor', id, from, to, quoted: str(args.quoted, MAX_QUOTE), by, viaMcp: true })
+  const out = change(projectPath, { op: 'reanchor', id, from, to, quoted: str(args.quoted, MAX_QUOTE), by, viaMcp: true })
   if (!out.ok) throw new Error(out.error)
   return out.said
 }
@@ -641,9 +690,37 @@ export function answer(
   body: Record<string, unknown> | null,
   ticket: string | null,
 ): Reply | null {
+  /*
+   * The health check, which can only count when it is told where to look.
+   *
+   * It used to answer `notes: <total>` off the one store beside this program.
+   * There is no such total any more — the notes are in the projects, one file
+   * each — and a health check is usually a GET from whoever started this app
+   * rather than from a canvas, so nothing has said which project it means.
+   *
+   * The honest shape is therefore two answers. Given `projectPath`, it opens
+   * that project's store and reports the count and any trouble reading it,
+   * which is exactly what it always did and is the useful thing to monitor.
+   * Given nothing, `notes` is null and `where` says where notes live at all,
+   * so a person reading the response knows where to go and look. What it never
+   * does is scan for stores belonging to projects nobody asked about, or print
+   * a zero that means "I did not look".
+   *
+   * `ok` stays what it always was: false only when a store that was asked for
+   * could not be read. A health check that went red because nobody had named a
+   * project would be reporting an ordinary state as a fault.
+   */
   if (path === '/healthz') {
-    const { total, trouble } = howMany()
-    return ok({ ok: !trouble, id: ID, version: VERSION, notes: total })
+    const asked = query.get('projectPath')
+    const { total, trouble, nowhere } = howMany(asked)
+    return ok({
+      ok: !trouble,
+      id: ID,
+      version: VERSION,
+      notes: nowhere ? null : total,
+      where: `<project>/${KEHIKOT_DIR}/${moduleFolder(ID)}/${FILE}.json`,
+      ...(trouble ? { trouble } : {}),
+    })
   }
 
   if (path === '/mcp') {
@@ -664,7 +741,6 @@ export function answer(
    */
   if (path === '/api/notes' && method === 'GET') {
     const ask = asked({
-      project: query.get('project'),
       projectPath: query.get('projectPath'),
       path: query.get('path'),
       page: query.get('page'),
@@ -700,14 +776,20 @@ export function answer(
       const op = str(body.op, 16)
       const by = OWNER
 
+      /* Which project, on EVERY write and not only on `add`. The page sends
+         `context.projectPath` with each press, because the id of a note is only
+         an address inside one project's file — and because the reader may have
+         moved to another project between the read that drew the row and the
+         press on it. Taken from this request rather than remembered from the
+         last one for exactly that reason. */
+      const projectPath = str(body.projectPath, MAX_PATH) || null
+
       if (op === 'add') {
         const from = body.from === null || body.from === undefined ? null : count(body.from)
         const to = body.to === null || body.to === undefined ? null : count(body.to)
         return ok(
-          change({
+          change(projectPath, {
             op: 'add',
-            project: str(body.project, 120) || null,
-            projectPath: str(body.projectPath, MAX_PATH) || null,
             path: str(body.path, MAX_PATH),
             page: body.page === null || body.page === undefined ? null : count(body.page),
             from,
@@ -721,15 +803,15 @@ export function answer(
 
       const id = str(body.id, MAX_ID)
       if (!id) return bad('that change did not say which note it was about.')
-      if (op === 'reply') return ok(change({ op: 'reply', id, body: str(body.body, MAX_BODY), by }))
-      if (op === 'resolve') return ok(change({ op: 'resolve', id, done: body.done !== false, by }))
+      if (op === 'reply') return ok(change(projectPath, { op: 'reply', id, body: str(body.body, MAX_BODY), by }))
+      if (op === 'resolve') return ok(change(projectPath, { op: 'resolve', id, done: body.done !== false, by }))
       if (op === 'reanchor') {
         const from = count(body.from)
         const to = count(body.to)
         if (from === null || to === null) {
           return bad('a re-anchor needs both ends of where the passage is now, and nothing was moved.')
         }
-        return ok(change({ op: 'reanchor', id, from, to, quoted: str(body.quoted, MAX_QUOTE), by }))
+        return ok(change(projectPath, { op: 'reanchor', id, from, to, quoted: str(body.quoted, MAX_QUOTE), by }))
       }
       /* Named rather than shrugged at, because the page and this store are one
          program: an op this door does not know is this app's own bug and the

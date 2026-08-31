@@ -168,10 +168,11 @@ function inOrder(a: Anchored, b: Anchored): number {
 /**
  * The notes one screen shows, and an honest count of the ones it does not.
  *
- * `notes` are already resolved against their documents and already partitioned
- * by project — this function decides nothing about either. It is pure, it is
- * the whole of the ladder, and it is the reason the ladder can be tested
- * without a browser, a store, or a `.tex` file.
+ * `notes` are already resolved against their documents, and they are already
+ * one project's — every one of them came out of that project's own
+ * `.kehikot/notes/notes.json`, so there is no partitioning left here to do or to get
+ * wrong. It is pure, it is the whole of the ladder, and it is the reason the
+ * ladder can be tested without a browser, a store, or a `.tex` file.
  */
 export function narrow(all: Anchored[], scope: Scope): Narrowed {
   /* Taken out first, everywhere, so no rung of the ladder can put one back. */

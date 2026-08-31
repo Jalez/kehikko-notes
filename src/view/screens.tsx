@@ -6,33 +6,56 @@ import { Button } from '@/components/ui/button.tsx'
  * Every one of these is a place where a lesser version of this app would draw
  * an empty list and let the reader conclude something wrong. An empty list says
  * "there is nothing here". These say which of the four quite different reasons
- * that is.
+ * that is — and since the notes moved into the projects there is a new one,
+ * `NoProject`, which is the difference between "nothing is written here" and
+ * "there is no here".
  */
 
 /**
- * Nothing is framing this page.
+ * Nobody said where the project is, so there is nowhere to read or write.
  *
- * The standalone case, and it is a real one: this app runs on its own port and
- * somebody may simply have opened it. It cannot know which project or which
- * document, because those are things a host says — so it says so, and offers
- * the one thing it can do without being told anything, which is show every note
- * it holds that nobody attributed to a project.
+ * ## What this replaced, and why the escape hatch had to go with it
+ *
+ * There used to be an `Unhosted` screen here for a page nobody was framing, and
+ * it offered a button: "show every note". That button worked because there was
+ * one file beside this program holding every project's notes, with a pile
+ * inside it belonging to nobody in particular — so there was always something
+ * to show, even standing nowhere.
+ *
+ * The file and the pile are both gone. A project's notes are in that project,
+ * at `<project>/.kehikot/notes/notes.json`, so with no project path there is no file
+ * to open: not an empty one, not a default one, none at all. There is nothing
+ * left for that button to show, and nowhere for a note written here to go.
+ *
+ * ## Saying so is better than the button was
+ *
+ * A pane that drew a spinner, an error, or an empty list would each describe a
+ * fault that does not exist. `projectPath` is nullable on the wire for
+ * perfectly ordinary reasons — nobody has opened a project, this page was
+ * opened directly on its own port, or the host has no filesystem of its own to
+ * point at — and not one of them is this app being broken.
+ *
+ * What it must never do is guess. A guessed folder means somebody's note
+ * written into a directory they will never open, under a screen that told them
+ * it was saved. So this says which fact is missing and where notes would live
+ * if it had it, and offers no press at all: there is no action available from
+ * here that would not be an invention.
  */
-export function Unhosted({ onEverything }: { onEverything: () => void }) {
+export function NoProject({ unhosted }: { unhosted: boolean }) {
   return (
     <div className="min-w-0 space-y-2 p-3">
-      <h1 className="text-sm font-semibold">Notes</h1>
-      <p className="text-xs text-muted-foreground">
-        Nothing is framing this page, so nothing has said which project is open or which document anybody is reading.
-        Notes are anchored to a document and partitioned by project, and both of those are facts a roadmap tells this
-        app rather than ones it can work out.
+      {unhosted ? <h1 className="text-sm font-semibold">Notes</h1> : null}
+      <p data-testid="no-project" className="min-w-0 text-xs text-muted-foreground">
+        {unhosted
+          ? 'Nothing is framing this page, so nothing has said which project is open.'
+          : 'This canvas has not said where its project is on disk.'}{' '}
+        Notes are kept inside the project they are about — <code>{'<project>/.kehikot/notes/notes.json'}</code> — so there is
+        nothing here to read and nowhere to write.
       </p>
-      <p className="text-xs text-muted-foreground">
-        It still holds everything ever written here. That is all it can offer from outside a canvas.
+      <p className="min-w-0 text-xs text-muted-foreground">
+        This app will not guess at a folder. A note written into a directory nobody named is a note nobody will ever
+        look in, and the page would have said it was saved.
       </p>
-      <Button size="pane" variant="outline" onClick={onEverything}>
-        show every note
-      </Button>
     </div>
   )
 }

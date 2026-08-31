@@ -35,7 +35,6 @@ const ORIGINAL = [
   'A closing paragraph.',
 ].join('\n')
 
-process.env.NOTES_DATA = join(home, 'data')
 process.env.NOTES_ROOTS = home
 process.env.NOTES_AGENT = 'a test agent'
 
@@ -54,7 +53,7 @@ function rpc(name: string, args: Record<string, unknown>) {
   return { text: body.result?.content?.[0]?.text ?? '', failed: body.result?.isError === true }
 }
 
-const OF_PROJECT = { project: 'thesis', projectPath: project }
+const OF_PROJECT = { projectPath: project }
 const ON_CHAPTER = { ...OF_PROJECT, path: CHAPTER }
 
 /** How many notes the `notes` tool printed. Ids are the one line per note. */
@@ -67,7 +66,8 @@ function ids(text: string): string[] {
 }
 
 beforeEach(() => {
-  rmSync(join(home, 'data'), { recursive: true, force: true })
+  /* The store is inside the project now, so emptying it is emptying that. */
+  rmSync(join(project, '.kehikot'), { recursive: true, force: true })
   writeFileSync(CHAPTER, ORIGINAL)
   forgetReads()
 })
@@ -136,7 +136,7 @@ describe('nothing is ever deleted, whatever the author does to the file', () => 
        whole design refuses. */
     const first = rpc('notes', ON_CHAPTER)
     const id = ids(first.text)[0]!
-    rpc('reply_to_note', { note: id, body: 'done in the rewrite, see the bridge chapter' })
+    rpc('reply_to_note', { ...OF_PROJECT, note: id, body: 'done in the rewrite, see the bridge chapter' })
 
     writeFileSync(CHAPTER, 'A chapter with nothing left in it at all.\n')
     forgetReads()
@@ -166,7 +166,7 @@ describe('what a person wrote is never overwritten by a file', () => {
        person was wrong. */
     const first = rpc('notes', ON_CHAPTER)
     const id = ids(first.text)[0]!
-    rpc('resolve_note', { note: id, done: true })
+    rpc('resolve_note', { ...OF_PROJECT, note: id, done: true })
     forgetReads()
 
     const open = rpc('notes', ON_CHAPTER)
@@ -182,7 +182,7 @@ describe('what a person wrote is never overwritten by a file', () => {
        not answer, with nothing recording what it used to say. */
     const first = rpc('notes', ON_CHAPTER)
     const id = ids(first.text).find((one) => first.text.includes(one)) ?? ''
-    rpc('reply_to_note', { note: id, body: 'no, this is Fischer' })
+    rpc('reply_to_note', { ...OF_PROJECT, note: id, body: 'no, this is Fischer' })
 
     writeFileSync(CHAPTER, ORIGINAL.replace('cite Lamport here', 'cite Fischer here'))
     forgetReads()

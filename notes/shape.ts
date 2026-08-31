@@ -82,17 +82,27 @@ export interface Reply {
  * differently, and so two notes on the same sentence are cheap to spot. It is
  * derived from `quoted` and never trusted over it.
  *
- * ## `project` and `projectPath`, because notes belong to a project
+ * ## There is no project on a note, and there used to be two fields for one
  *
- * The host says which project the reader is in and where it is on disk, and
- * both are recorded on the note. Notes on one project's thesis must not appear
- * beside another's, and the alternative — one flat pile keyed by document path
- * — breaks the first time two projects have a `chapters/intro.tex`, which is
- * approximately always.
+ * A note carried `project` and `projectPath`, and a `projectKey` helper turned
+ * the pair into the key everything partitioned on. Both are gone, because the
+ * FILE a note is in now says which project it belongs to: `store.ts` opens
+ * `<projectPath>/.kehikot/notes/notes.json`, so a note in that file is that project's
+ * by virtue of where it is sitting.
  *
- * Both, and not one, for the reason the protocol carries both: the path is the
- * identity and the name is what a person reads. A note whose project is gone
- * from the machine still says what it was about.
+ * Keeping the fields as well would be two sources for one fact, and the failure
+ * that produces is not hypothetical. The whole point of moving the store into
+ * the project was that it becomes a plain JSON file in somebody's repository,
+ * and the obvious thing to do with one of those is copy it — to another
+ * checkout, into a colleague's project, out of a backup. Every note in the copy
+ * would go on claiming to belong to the folder it came FROM, and anything that
+ * believed the field over the location would draw them under the wrong
+ * project's name. A file cannot be wrong about where it is.
+ *
+ * Notes on one project's thesis still must not appear beside another's. That
+ * rule is now enforced by the shape of the filesystem rather than by a filter,
+ * which is worth more than the filter was: a filter is a rule with a chance of
+ * being forgotten at every new call site, and a location has none.
  *
  * ## `viaMcp`, printed and never inferred
  *
@@ -207,10 +217,6 @@ export interface Source {
 
 export interface Note {
   id: string
-  /** What the project is called, as the host said it. Null when no host had said. */
-  project: string | null
-  /** Where that project is on disk, as the host said it. Null when it had no filesystem to point at. */
-  projectPath: string | null
   path: string
   page: number | null
   from: number | null
@@ -251,33 +257,23 @@ export function sourceOf(note: Pick<Note, 'source'>): Source | null {
   return note.source ?? null
 }
 
-/** Everything the store holds, as it sits on disk. */
+/**
+ * Everything ONE PROJECT's store holds, as it sits on disk.
+ *
+ * One project's, because the file is `<projectPath>/.kehikot/notes/notes.json` and
+ * the path is the partition — see `store.ts`. There is deliberately no project
+ * key anywhere in this shape: a store that has never heard of a project has no
+ * way to show one project's notes under another's name.
+ *
+ * `version` is kept at 1 and did not go up when the notes moved. It describes
+ * the shape of what is inside the file, and the shape did not change — two
+ * fields left every note, which every reader here already tolerates being
+ * absent. What changed is WHERE the file is, and a version number inside a
+ * document cannot say anything about that.
+ */
 export interface Store {
   version: 1
   notes: Note[]
-}
-
-/**
- * Which project a note belongs to, as one comparable string.
- *
- * The path when there is one, because a path is an identity and a name is a
- * label — two projects can be called "thesis" and only one of them is at
- * `/Users/x/Projects/thesis`. The name is the fallback for a host with no
- * filesystem, which is a real host and not a broken one. `''` means nobody ever
- * said, and those notes are their own pile rather than being merged into
- * whichever project happens to be open — a note filed under "unattributed"
- * appearing under somebody's thesis would be this app inventing a fact.
- *
- * A pure function rather than a field on the note, so that a store written
- * before a host started sending paths partitions the same way as one written
- * after.
- */
-export function projectKey(of: { project?: string | null; projectPath?: string | null }): string {
-  const path = typeof of.projectPath === 'string' ? of.projectPath.trim() : ''
-  if (path) return `path:${path}`
-  const name = typeof of.project === 'string' ? of.project.trim() : ''
-  if (name) return `name:${name}`
-  return ''
 }
 
 /**

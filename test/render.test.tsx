@@ -4,7 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import type { Anchored } from '../notes/anchor.ts'
 import type { Note } from '../notes/shape.ts'
 import { NoteRow } from '../src/view/note.tsx'
-import { Nowhere, Unhosted } from '../src/view/screens.tsx'
+import { NoProject, Nowhere } from '../src/view/screens.tsx'
 
 /**
  * The words on screen, asserted against the real components.
@@ -23,8 +23,6 @@ const actions = { reply: () => {}, resolve: () => {}, reanchor: () => {}, point:
 function note(over: Partial<Note> = {}): Note {
   return {
     id: 'n1',
-    project: 'thesis',
-    projectPath: '/w/thesis',
     path: '/w/thesis/chapters/bridge.tex',
     page: 3,
     from: 100,
@@ -218,9 +216,25 @@ describe('the screens that are not a list of notes name why they are there', () 
     expect(screen.getByText('show every note in thesis')).toBeDefined()
   })
 
-  test('unframed says which facts it is missing and which it can still answer', () => {
-    render(<Unhosted onEverything={() => {}} />)
+  /*
+   * The screen that replaced `Unhosted`, and the assertion that matters most is
+   * the ABSENCE of a button. There used to be one — "show every note" — reading
+   * a pile of unattributed notes out of a file beside the program. Neither the
+   * file nor the pile exists now, so a press could only show nothing or invent
+   * a folder to read, and this screen is the fix for exactly that.
+   */
+  test('no project says which fact is missing, where notes live, and offers no press', () => {
+    render(<NoProject unhosted={false} />)
+    expect(document.body.textContent).toContain('has not said where its project is')
+    expect(document.body.textContent).toContain('.kehikot/notes/notes.json')
+    expect(document.body.textContent).toContain('will not guess')
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  test('unframed says the same thing, in the words of a page nobody is framing', () => {
+    render(<NoProject unhosted />)
     expect(document.body.textContent).toContain('Nothing is framing this page')
-    expect(screen.getByText('show every note')).toBeDefined()
+    expect(document.body.textContent).toContain('nowhere to write')
+    expect(screen.queryByRole('button')).toBeNull()
   })
 })

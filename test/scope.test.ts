@@ -17,8 +17,6 @@ const PATH = '/w/thesis/chapters/bridge.tex'
 function note(over: Partial<Note>): Note {
   return {
     id: 'n',
-    project: 'thesis',
-    projectPath: '/w/thesis',
     path: PATH,
     page: 3,
     from: 100,

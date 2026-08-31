@@ -1,7 +1,6 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 
-import { dataDir } from '../store.ts'
+import { dataFile, makeDir } from '../store.ts'
 import {
   MAX_BODY,
   MAX_BY,
@@ -9,7 +8,6 @@ import {
   MAX_QUOTE,
   MAX_REPLIES,
   fingerprint,
-  projectKey,
   type Note,
   type Reply,
   type Store,
@@ -29,59 +27,130 @@ import {
  * Every refusal is a SENTENCE and never a code. Whoever is reading it is either
  * a person looking at a pane or an agent that has to decide what to do next,
  * and both of them need to be told what to do instead.
+ *
+ * ## Every function here takes the project, and that REPLACED a filter
+ *
+ * There used to be one file holding every project's notes and a `notesOf()`
+ * that filtered it by a key computed from two fields on each note. It is gone.
+ * The project is now the FILE — `<projectPath>/.kehikot/notes/notes.json`, see
+ * `store.ts` — so which project a caller means is a parameter to OPENING the
+ * store rather than a predicate applied after opening it.
+ *
+ * That is a smaller program and a stronger rule. A filter is a rule with a
+ * fresh chance of being forgotten at every new call site; there were four here.
+ * A file's location has none.
+ *
+ * The parameter is nullable, and that is not laziness. `projectPath` is
+ * nullable on the wire, so "there is no project" is a state this module has to
+ * be able to be in and answer honestly: a read comes back empty with `nowhere`
+ * set, and every write is refused with a sentence. What it must never do is
+ * pick a default, because a default here writes somebody's notes into a folder
+ * they will never open.
  */
-
-function file(): string {
-  return join(dataDir(), 'notes.json')
-}
 
 const EMPTY: Store = { version: 1, notes: [] }
 
+export interface Read {
+  store: Store
+  /** Why nothing can be read or written, when a project WAS named and refused. */
+  trouble: string | null
+  /**
+   * Whether nobody said which project this is.
+   *
+   * A separate field from `trouble` because it is a different sentence.
+   * `trouble` means "this was asked for and refused" and belongs on screen in
+   * red; `nowhere` means nobody asked yet, which is an ordinary state on a
+   * canvas that has not opened a project.
+   *
+   * Collapsing them fails both ways. As trouble, it tells a reader their canvas
+   * is broken when it is merely somewhere else. As a plain empty store, it
+   * invites a write — and a write with no project is either refused or lands in
+   * a guessed folder, which is the one thing `store.ts` spends its length
+   * refusing to do.
+   */
+  nowhere: boolean
+}
+
 /**
- * Everything on disk, or an empty store and a sentence about why.
+ * Everything in ONE PROJECT's store, or an empty one and a sentence about why.
  *
- * An absent file is NOT trouble: it is a first run, and reporting it as an
- * error would make every fresh install look broken. A file that is there and
- * cannot be parsed IS trouble, and is reported rather than silently replaced —
- * overwriting somebody's notes because a byte got mangled is the one
- * irreversible thing this program could do.
+ * An absent file is NOT trouble: it is a project nobody has written a note
+ * about yet, and reporting it as an error would make every new project look
+ * broken. A file that is there and cannot be parsed IS trouble, and is reported
+ * rather than silently replaced — overwriting somebody's notes because a byte
+ * got mangled is the one irreversible thing this program could do.
  */
-export function read(): { store: Store; trouble: string | null } {
+export function read(projectPath: string | null | undefined): Read {
+  const { path, trouble } = dataFile(projectPath)
+  if (trouble) return { store: { ...EMPTY, notes: [] }, trouble, nowhere: false }
+  if (path === null) return { store: { ...EMPTY, notes: [] }, trouble: null, nowhere: true }
+
   let raw: string
   try {
-    raw = readFileSync(file(), 'utf8')
+    raw = readFileSync(path, 'utf8')
   } catch {
-    return { store: { ...EMPTY, notes: [] }, trouble: null }
+    return { store: { ...EMPTY, notes: [] }, trouble: null, nowhere: false }
   }
   try {
     const parsed = JSON.parse(raw) as Partial<Store>
     if (!parsed || !Array.isArray(parsed.notes)) throw new Error('no notes array')
-    return { store: { version: 1, notes: parsed.notes as Note[] }, trouble: null }
+    return { store: { version: 1, notes: parsed.notes as Note[] }, trouble: null, nowhere: false }
   } catch {
     return {
       store: { ...EMPTY, notes: [] },
       trouble:
-        `This app could not read its own store at ${file()}. Nothing has been changed and nothing has been thrown `
+        `This app could not read its own store at ${path}. Nothing has been changed and nothing has been thrown `
         + 'away — the file is still there. Until it parses, this pane will show no notes and refuse to write any, '
         + 'because writing would replace whatever is in it.',
+      nowhere: false,
     }
   }
 }
 
 /**
- * Everything on disk, written the only way that survives a crash mid-write.
+ * One project's store, written the only way that survives a crash mid-write.
  *
  * To a neighbouring file and then renamed, because `rename` within a directory
  * is atomic on every filesystem this runs on and a truncated `notes.json` is
  * every note somebody wrote. A partial write here is not a corrupted row; it is
  * the store.
+ *
+ * `makeDir` goes first, and it is where the folder comes into existence and the
+ * project's `.gitignore` is told about it — on this path and never on the read
+ * path, so that looking at a repository does not change it. Its refusal is also
+ * the fence: it resolves the folder AFTER creating it and will not hand back one
+ * that turns out to point outside the project.
+ *
+ * A sentence comes back rather than an exception, because every caller of this
+ * already has to produce one for whoever pressed something.
  */
-function write(store: Store): void {
-  const target = file()
-  const temporary = `${target}.writing`
+function write(projectPath: string | null | undefined, store: Store): string | null {
+  const made = makeDir(projectPath)
+  if (made.trouble) return made.trouble
+  if (made.dir === null) return NOWHERE
+
+  const { path, trouble } = dataFile(projectPath)
+  if (trouble) return trouble
+  if (path === null) return NOWHERE
+
+  const temporary = `${path}.writing`
   writeFileSync(temporary, `${JSON.stringify(store, null, 2)}\n`)
-  renameSync(temporary, target)
+  renameSync(temporary, path)
+  return null
 }
+
+/**
+ * What a write is refused with when nothing has said which project this is.
+ *
+ * One sentence in one place, because it is the answer at the page's door and at
+ * the agent's, and two spellings of it is how a person and an agent end up
+ * describing different situations to each other. Like every refusal here it
+ * names the remedy rather than stopping at "no".
+ */
+export const NOWHERE =
+  'Nothing has said which project this is, so there is nowhere to write. Notes live inside the project they are '
+  + 'about, at <project>/.kehikot/notes/notes.json, and this app will not guess at a folder — a note written into a '
+  + 'directory nobody named is a note nobody will ever look in. Open a project on this canvas, or send projectPath.'
 
 /**
  * A short id for a note or a reply.
@@ -120,8 +189,6 @@ export function count(value: unknown): number | null {
 export type Op =
   | {
       op: 'add'
-      project: string | null
-      projectPath: string | null
       path: string
       page: number | null
       from: number | null
@@ -150,8 +217,6 @@ export type Op =
    */
   | {
       op: 'ingest'
-      project: string | null
-      projectPath: string | null
       path: string
       by: string
       found: Annotated[]
@@ -187,20 +252,26 @@ export type Outcome = { ok: true; said: string; id: string } | { ok: false; erro
  * Every change, decided in one place.
  *
  * The store is re-read on every call rather than held in memory. Two doors and
- * a page write here, a person may edit the JSON by hand, and a cached copy is
+ * a page write here, a person may edit the JSON by hand — which is much more
+ * likely now that the file sits in their own repository — and a cached copy is
  * how a note written over MCP disappears the next time somebody presses
  * something on the page.
+ *
+ * `projectPath` is first because it decides WHICH store, before anything decides
+ * what to do to it. Null is refused outright, with `NOWHERE`: there is no
+ * version of this that guesses a folder.
  */
-export function change(op: Op): Outcome {
-  const { store, trouble } = read()
+export function change(projectPath: string | null | undefined, op: Op): Outcome {
+  const { store, trouble, nowhere } = read(projectPath)
   if (trouble) return { ok: false, error: trouble }
+  if (nowhere) return { ok: false, error: NOWHERE }
 
   const by = str(op.by, MAX_BY) || 'somebody'
 
   /* Handled before `viaMcp` is read, because an ingestion has no door — see the
      comment on the op. Reading a field that is not on the variant would be a
      type error, which is the check doing its job. */
-  if (op.op === 'ingest') return ingest(store, op, by)
+  if (op.op === 'ingest') return ingest(projectPath, store, op, by)
 
   const viaMcp = op.viaMcp === true
 
@@ -256,8 +327,6 @@ export function change(op: Op): Outcome {
 
     const note: Note = {
       id: mint('n'),
-      project: str(op.project, 120) || null,
-      projectPath: str(op.projectPath, MAX_PATH) || null,
       path,
       page,
       from: hasFrom ? (op.from as number) : null,
@@ -274,7 +343,8 @@ export function change(op: Op): Outcome {
       replies: [],
     }
     store.notes.push(note)
-    write(store)
+    const refused = write(projectPath, store)
+    if (refused) return { ok: false, error: refused }
     const where = note.from === null ? (page === null ? path : `page ${page} of ${path}`) : `${path} bytes ${note.from}–${note.to}`
     return { ok: true, said: `Noted against ${where}`, id: note.id }
   }
@@ -302,7 +372,8 @@ export function change(op: Op): Outcome {
     }
     const reply: Reply = { id: mint('r'), body, by, viaMcp, at: now() }
     note.replies.push(reply)
-    write(store)
+    const refused = write(projectPath, store)
+    if (refused) return { ok: false, error: refused }
     return { ok: true, said: `Replied to ${note.id}`, id: note.id }
   }
 
@@ -318,7 +389,8 @@ export function change(op: Op): Outcome {
     note.resolved = op.done
     note.resolvedAt = op.done ? now() : null
     note.resolvedBy = op.done ? by : null
-    write(store)
+    const refused = write(projectPath, store)
+    if (refused) return { ok: false, error: refused }
     return { ok: true, said: op.done ? `Resolved ${note.id}` : `Reopened ${note.id}`, id: note.id }
   }
 
@@ -347,36 +419,50 @@ export function change(op: Op): Outcome {
   note.to = op.to
   note.quoted = quoted
   note.fingerprint = fingerprint(quoted)
-  write(store)
+  const refused = write(projectPath, store)
+  if (refused) return { ok: false, error: refused }
   return { ok: true, said: `Re-anchored ${note.id} to bytes ${op.from}–${op.to}`, id: note.id }
 }
 
 /**
  * The notes belonging to one project.
  *
- * Partitioned here rather than at every caller, because "notes are the
- * project's" is a rule and not a convenience: notes on one project's thesis
- * appearing beside another's is the failure this exists to prevent, and a rule
- * enforced at four call sites is a rule with four chances to be forgotten.
+ * There is no filter left in this function, and that is the change. It used to
+ * open one file holding everybody's notes and keep the ones whose `projectKey`
+ * matched; now it opens THAT PROJECT'S file, and everything in it is by
+ * definition the answer. "Notes on one project's thesis must not appear beside
+ * another's" is the same rule it always was — enforced by which file was opened
+ * rather than by a predicate four call sites had to remember to apply.
  *
- * The key is `projectKey` — the path where there is one, the name otherwise,
- * and `''` for a note nobody ever said a project about. Those last ones are
- * their own pile: merging them into whichever project happens to be open would
- * be this app inventing a fact about somebody's material.
+ * `nowhere` is passed through rather than being flattened into an empty list.
+ * A caller has to be able to tell "this project has no notes" from "nobody said
+ * which project", because those two sentences send a reader to opposite places.
  */
-export function notesOf(project: { project?: string | null; projectPath?: string | null }): {
+export function notesOf(projectPath: string | null | undefined): {
   notes: Note[]
   trouble: string | null
+  nowhere: boolean
 } {
-  const { store, trouble } = read()
-  const key = projectKey(project)
-  return { notes: store.notes.filter((one) => projectKey(one) === key), trouble }
+  const { store, trouble, nowhere } = read(projectPath)
+  return { notes: store.notes, trouble, nowhere }
 }
 
-/** How many notes there are in total, for the health check. */
-export function howMany(): { total: number; trouble: string | null } {
-  const { store, trouble } = read()
-  return { total: store.notes.length, trouble }
+/**
+ * How many notes one project holds, for the health check.
+ *
+ * The health check has no project — it is a GET on `/healthz` from whoever
+ * started this app — so it asks with `null` and gets `nowhere`, which is the
+ * honest answer: this app is running, and how many notes exist is a question
+ * about a project nobody has named. See `answer()` in `doors.ts` for what it
+ * reports instead of a number it cannot have.
+ */
+export function howMany(projectPath: string | null | undefined): {
+  total: number
+  trouble: string | null
+  nowhere: boolean
+} {
+  const { store, trouble, nowhere } = read(projectPath)
+  return { total: store.notes.length, trouble, nowhere }
 }
 
 /**
@@ -435,12 +521,20 @@ export function howMany(): { total: number; trouble: string | null } {
  * small: a heavily reworded annotation appears twice, once marked gone, which
  * is a true account of the file's history rather than a tidy one.
  */
-function ingest(store: Store, op: Extract<Op, { op: 'ingest' }>, by: string): Outcome {
+function ingest(
+  projectPath: string | null | undefined,
+  store: Store,
+  op: Extract<Op, { op: 'ingest' }>,
+  by: string,
+): Outcome {
   const path = str(op.path, MAX_PATH)
   if (!path) return { ok: false, error: 'An ingestion has to name the file it read. Nothing was stored.' }
 
-  const key = projectKey(op)
-  const mine = store.notes.filter((one) => projectKey(one) === key && one.path === path && one.source)
+  /* The project half of this test is gone: every note in this store is already
+     this project's, because of which file was opened. What is left is the file
+     — an ingestion reconciles ONE document, and a note about another chapter
+     must not be marked gone because this chapter was read. */
+  const mine = store.notes.filter((one) => one.path === path && one.source)
   const byKey = new Map(mine.map((one) => [one.source!.key, one]))
   const stamp = now()
 
@@ -570,8 +664,6 @@ function ingest(store: Store, op: Extract<Op, { op: 'ingest' }>, by: string): Ou
 
     store.notes.push({
       id: mint('n'),
-      project: str(op.project, 120) || null,
-      projectPath: str(op.projectPath, MAX_PATH) || null,
       path,
       /* No page. A page is a property of a READER — how one module chose to
          paginate a document — and this read the file. Inventing one would put a
@@ -629,7 +721,10 @@ function ingest(store: Store, op: Extract<Op, { op: 'ingest' }>, by: string): Ou
     gone++
   }
 
-  if (added || gone || moved || revived || reread || retired) write(store)
+  if (added || gone || moved || revived || reread || retired) {
+    const refused = write(projectPath, store)
+    if (refused) return { ok: false, error: refused }
+  }
   return {
     ok: true,
     said:

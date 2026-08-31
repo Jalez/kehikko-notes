@@ -13,10 +13,11 @@
 #   - `exec`, and the foreground. A script that forks and returns leaves whoever
 #     started it holding a pid that stops nothing, and Stop is only ever offered
 #     for what a host started.
-#   - `cd` to this script's own directory, so this app's store is beside the
-#     program however it was invoked. That is not a detail here: `data/` holds
-#     every note anybody wrote, and the whole claim of the module is that the
-#     directory can be copied to another machine and run.
+#   - `cd` to this script's own directory, so `node_modules` and Vite's config
+#     are found however the script was invoked. That used to be about the store
+#     as well; it is not any more. The notes live in the project they are about
+#     — `<projectPath>/.kehikot/notes/notes.json` — and this directory now holds only
+#     the program. See `store.ts`.
 #
 # It does NOT register. Registration is a deliberate act by a person — see
 # `register.ts` — and a start script that quietly wrote into somebody's home
@@ -35,14 +36,18 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Said out loud rather than left to a default, and the reason is in `store.ts`:
-# Vite bundles its own config into `node_modules/.vite-temp/`, so anything in
-# that graph asking where it lives gets the wrong answer — or, under Node,
-# `undefined`. Naming the directory here is the one place that cannot be moved
-# by a bundler, and it is `$PWD` because of the `cd` above, so the store is
-# beside this script however the script was invoked. Somebody who has already
-# set the variable keeps their own answer.
-export NOTES_DATA="${NOTES_DATA:-$PWD/data}"
+# `NOTES_DATA` is gone, and its absence is the point rather than an omission.
+#
+# It named a directory beside this script holding one `notes.json` for every
+# project at once. There is no such file now: the notes for a project are in
+# that project, at `<projectPath>/.kehikot/notes/notes.json`, and the host says which
+# project on every context change. A variable set at launch could only ever name
+# ONE of them, which is the failure the protocol's `projectPath` was added to
+# end — a host moving a person to another project while every module went on
+# reading the first one, correctly, from the root it was handed at startup.
+#
+# So there is nothing to export here, and a deployment that still sets the old
+# variable is simply ignored rather than quietly obeyed.
 
 # Which directories this app may open a document from, in order to check whether
 # a note's anchor still points at the words it was written about.

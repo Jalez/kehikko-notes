@@ -84,7 +84,7 @@ export interface Ingested {
  * on such a path already gets when its anchor cannot be verified.
  */
 export function ingestSource(
-  where: { project: string | null; projectPath: string | null; path: string },
+  where: { projectPath: string | null; path: string },
   read: (path: string) => string | null,
   by: string,
   force = false,
@@ -109,10 +109,13 @@ export function ingestSource(
     to: one.to,
     quoted: one.source,
   })
-  const outcome = change({
+  /* `where.projectPath` does two different jobs and it is worth naming both,
+     because they used to be one. It says which STORE to write into — the file
+     under that project's `.kehikot` — and, through the reader the caller built
+     from it, which directories a document may be opened from at all. Nothing is
+     recorded on the note: the note's project is the file it ends up in. */
+  const outcome = change(where.projectPath, {
     op: 'ingest',
-    project: where.project,
-    projectPath: where.projectPath,
     path: where.path,
     by,
     found: kept.map(keyed),

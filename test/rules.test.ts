@@ -65,7 +65,7 @@ const SOURCE = [
   '',
 ].join('\n')
 
-process.env.NOTES_DATA = join(home, 'data')
+
 process.env.NOTES_ROOTS = home
 
 const { change, read } = await import('../notes/keep.ts')
@@ -73,7 +73,7 @@ const { fingerprint } = await import('../notes/shape.ts')
 const { forgetReads, ingestSource } = await import('../notes/ingest.ts')
 const { readerFor } = await import('../notes/source.ts')
 
-const OF = { project: 'thesis', projectPath: project, path: MAIN }
+const OF = { projectPath: project, path: MAIN }
 
 function reread() {
   forgetReads()
@@ -89,7 +89,8 @@ function annotation(where: 'kept' | 'withdrawn', kind: 'todo' | 'comment') {
 
 beforeEach(() => {
   writeFileSync(MAIN, SOURCE)
-  rmSync(join(home, 'data', 'notes.json'), { force: true })
+  /* The store is inside the project now: `<project>/.kehikot/notes/`. */
+  rmSync(join(project, '.kehikot'), { recursive: true, force: true })
   forgetReads()
 })
 
@@ -175,9 +176,9 @@ describe('the notes lifted under the old rules', () => {
     body: string,
     key: string,
   ) {
-    const outcome = change({
+    const outcome = change(project, {
       op: 'ingest',
-      ...OF,
+      path: MAIN,
       by: 'the author, in the source',
       found: [{ key, kind: one.kind, body, from: one.from, to: one.to, quoted: one.source }],
     })
@@ -186,12 +187,12 @@ describe('the notes lifted under the old rules', () => {
 
   test('a preamble note is withdrawn, not deleted and not left in the list', () => {
     plantOldStyle(annotation('withdrawn', 'comment'), 'old body with rules', 'stale-key')
-    expect(read().store.notes).toHaveLength(1)
+    expect(read(project).store.notes).toHaveLength(1)
 
     const done = reread()
     expect(done.said).toContain('withdrawn as part of the file')
 
-    const notes = read().store.notes
+    const notes = read(project).store.notes
     /* Nothing added: the withdrawn annotation did not arrive as a second note
        beside the one it is. Nothing removed either. */
     expect(notes.filter((one) => one.source?.withdrawn)).toHaveLength(1)
@@ -205,12 +206,12 @@ describe('the notes lifted under the old rules', () => {
   test('a note whose TEXT this app now reads differently is the same note, and says so', () => {
     const wasBody = '============\nChapter 1 — Introduction\nRevised order per supervisory feedback.\n============'
     plantOldStyle(annotation('kept', 'comment'), wasBody, `${MAIN}#comment:${fingerprint(wasBody)}`)
-    const before = read().store.notes[0]!.id
+    const before = read(project).store.notes[0]!.id
 
     const done = reread()
     expect(done.said).toContain('re-read from the source')
 
-    const notes = read().store.notes
+    const notes = read(project).store.notes
     /* One note, not two. The words in the file did not change; only this app's
        reading of them did, and forking there would be the program announcing
        its own bug fix by duplicating somebody's notes. */
@@ -237,7 +238,7 @@ describe('the notes lifted under the old rules', () => {
       'stale-todo',
     )
     reread()
-    const todos = read().store.notes.filter((one) => one.source?.kind === 'todo')
+    const todos = read(project).store.notes.filter((one) => one.source?.kind === 'todo')
     expect(todos).toHaveLength(2)
     expect(todos.map((one) => one.body).sort()).toEqual(['cite Fischer here', 'cite Lamport here'])
     expect(todos.find((one) => one.body === 'cite Fischer here')?.source?.present).toBe(false)
@@ -245,9 +246,9 @@ describe('the notes lifted under the old rules', () => {
 
   test('reading again changes nothing at all', () => {
     reread()
-    const first = read().store.notes.length
+    const first = read(project).store.notes.length
     const again = reread()
     expect(again.said).toMatch(/0 new, 0 re-anchored, 0 no longer in the source\./)
-    expect(read().store.notes).toHaveLength(first)
+    expect(read(project).store.notes).toHaveLength(first)
   })
 })

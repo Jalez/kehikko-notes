@@ -6,11 +6,16 @@ import { join } from 'node:path'
 /**
  * Every door, over a store of its own.
  *
- * `NOTES_DATA` and `NOTES_ROOTS` are set before `doors.ts` is imported, and
- * `store.ts` resolves the directory at CALL time rather than at import, so this
- * is a real store on disk and not a stub. That matters: the thing being tested
- * is what an agent gets back, and half of what an agent gets back is a verdict
- * about a file that has to actually be there.
+ * Real projects in a temporary directory, with real stores inside them. Since
+ * the notes moved into the projects there is no `NOTES_DATA` to point anywhere:
+ * a store's address is the `projectPath` each call carries, so these tests
+ * exercise the same resolution a running app does rather than a redirected one.
+ * `NOTES_ROOTS` remains, because it bounds which DOCUMENTS may be opened, which
+ * is a different question and still an environment one.
+ *
+ * Real files rather than a stub, because the thing being tested is what an
+ * agent gets back, and half of what an agent gets back is a verdict about a
+ * file that has to actually be there.
  */
 const home = mkdtempSync(join(tmpdir(), 'kehikko-notes-'))
 const project = join(home, 'thesis')
@@ -23,7 +28,6 @@ const SOURCE = 'A module is one origin or it is nothing.\n\nEvery field is someb
 const FROM = 0
 const TO = 'A module is one origin or it is nothing.'.length
 
-process.env.NOTES_DATA = join(home, 'data')
 process.env.NOTES_ROOTS = home
 process.env.NOTES_AGENT = 'a test agent'
 
@@ -45,10 +49,15 @@ function rpc(name: string, args: Record<string, unknown>) {
   return { text: body.result?.content?.[0]?.text ?? '', failed: body.result?.isError === true }
 }
 
-const OF_PROJECT = { project: 'thesis', projectPath: project }
+const OF_PROJECT = { projectPath: project }
+const OF_OTHER = { projectPath: other }
 
 beforeEach(() => {
-  rmSync(join(home, 'data'), { recursive: true, force: true })
+  /* Each project's store is inside that project now, so emptying "the store"
+     between tests means emptying both of them. `NOTES_DATA` used to name one
+     directory and there is no such directory any more. */
+  rmSync(join(project, '.kehikot'), { recursive: true, force: true })
+  rmSync(join(other, '.kehikot'), { recursive: true, force: true })
   writeFileSync(CHAPTER, SOURCE)
 })
 
@@ -57,10 +66,27 @@ afterAll(() => {
 })
 
 describe('the manifest and the health check', () => {
-  test('health says how many notes there are and does not lie about trouble', () => {
+  /*
+   * The health check can only count when it is told where to look, and both
+   * halves of that are asserted because the wrong answer to either would be a
+   * lie. A zero for "nobody named a project" reads as "this project has no
+   * notes"; a red `ok` for the same reports an ordinary state as a fault.
+   */
+  test('with no project it says where notes live rather than counting nothing', () => {
     const reply = answer('GET', '/healthz', new URLSearchParams(), null, null)
     expect(reply?.status).toBe(200)
-    expect((reply?.body as { ok: boolean; notes: number }).ok).toBe(true)
+    const body = reply?.body as { ok: boolean; notes: number | null; where: string }
+    expect(body.ok).toBe(true)
+    expect(body.notes).toBeNull()
+    expect(body.where).toContain('.kehikot/notes/notes.json')
+  })
+
+  test('given a project it counts that project’s notes, and does not lie about trouble', () => {
+    rpc('add_note', { ...OF_PROJECT, path: CHAPTER, body: 'one note' })
+    const reply = answer('GET', '/healthz', new URLSearchParams({ projectPath: project }), null, null)
+    const body = reply?.body as { ok: boolean; notes: number | null }
+    expect(body.ok).toBe(true)
+    expect(body.notes).toBe(1)
   })
 })
 
@@ -128,15 +154,15 @@ describe('every argument is validated, and every refusal is a sentence', () => {
   })
 
   test('a reply to a note that is not here names the id back', () => {
-    expect(rpc('reply_to_note', { note: 'nope', body: 'x' }).text).toContain('nope')
+    expect(rpc('reply_to_note', { ...OF_PROJECT, note: 'nope', body: 'x' }).text).toContain('nope')
   })
 
   test('a tool that needs an id refuses without one, and says an id is not the words', () => {
-    expect(rpc('resolve_note', {}).text).toContain('needs the id')
+    expect(rpc('resolve_note', OF_PROJECT).text).toContain('needs the id')
   })
 
   test('re-anchoring without both ends moves nothing', () => {
-    expect(rpc('reanchor_note', { note: 'x', quoted: 'y' }).text).toContain('Nothing was moved')
+    expect(rpc('reanchor_note', { ...OF_PROJECT, note: 'x', quoted: 'y' }).text).toContain('Nothing was moved')
   })
 })
 
@@ -166,9 +192,9 @@ describe('writing and reading a note back', () => {
       rpc('add_note', { ...OF_PROJECT, path: CHAPTER, from: FROM, to: TO, quoted: SOURCE.slice(FROM, TO), body: 'a thought worth keeping' }).text,
     )
     expect(id).not.toBe('')
-    expect(rpc('reply_to_note', { note: id, body: 'looked at it' }).failed).toBe(false)
-    expect(rpc('resolve_note', { note: id }).failed).toBe(false)
-    expect(rpc('resolve_note', { note: id }).text).toContain('already resolved')
+    expect(rpc('reply_to_note', { ...OF_PROJECT, note: id, body: 'looked at it' }).failed).toBe(false)
+    expect(rpc('resolve_note', { ...OF_PROJECT, note: id }).failed).toBe(false)
+    expect(rpc('resolve_note', { ...OF_PROJECT, note: id }).text).toContain('already resolved')
     /* Resolved notes are out of the way and not gone. */
     expect(rpc('notes', { ...OF_PROJECT, path: CHAPTER }).text).not.toContain('a thought worth keeping')
     expect(rpc('notes', { ...OF_PROJECT, path: CHAPTER, include_resolved: true }).text).toContain('a thought worth keeping')
@@ -236,7 +262,7 @@ describe('an anchor that rots is reported, not corrected', () => {
     const grown = `\\section{New}\n\n${SOURCE}`
     writeFileSync(CHAPTER, grown)
     const at = grown.indexOf('A module is one origin')
-    expect(rpc('reanchor_note', { note: id, from: at, to: at + TO, quoted: 'A module is one origin or it is nothing.' }).failed).toBe(false)
+    expect(rpc('reanchor_note', { ...OF_PROJECT, note: id, from: at, to: at + TO, quoted: 'A module is one origin or it is nothing.' }).failed).toBe(false)
     expect(rpc('notes', { ...OF_PROJECT, path: CHAPTER }).text).not.toContain('[MOVED]')
   })
 })
@@ -246,8 +272,7 @@ describe('an anchor this app may not check', () => {
     const outside = join(other, 'chapters', 'elsewhere.tex')
     writeFileSync(outside, SOURCE)
     rpc('add_note', {
-      project: 'other',
-      projectPath: other,
+      ...OF_OTHER,
       path: outside,
       from: FROM,
       to: TO,
@@ -256,7 +281,7 @@ describe('an anchor this app may not check', () => {
     })
     /* `NOTES_ROOTS` is the shared home in this suite, so read it back with a
        reader whose root is a directory that does not contain the file. */
-    const read = rpc('notes', { project: 'other', projectPath: other, path: '/etc/hosts', everything: true })
+    const read = rpc('notes', { ...OF_OTHER, path: '/etc/hosts', everything: true })
     expect(read.text).toContain('outside')
   })
 })
@@ -264,29 +289,57 @@ describe('an anchor this app may not check', () => {
 describe('notes are the project’s', () => {
   test('one project’s notes never appear under another’s', () => {
     rpc('add_note', { ...OF_PROJECT, path: CHAPTER, body: 'belongs to thesis' })
-    rpc('add_note', { project: 'other', projectPath: other, path: join(other, 'chapters', 'a.tex'), body: 'belongs to other' })
+    rpc('add_note', { ...OF_OTHER, path: join(other, 'chapters', 'a.tex'), body: 'belongs to other' })
 
     const mine = rpc('notes', { ...OF_PROJECT, everything: true })
     expect(mine.text).toContain('belongs to thesis')
     expect(mine.text).not.toContain('belongs to other')
 
-    const theirs = rpc('notes', { project: 'other', projectPath: other, everything: true })
+    const theirs = rpc('notes', { ...OF_OTHER, everything: true })
     expect(theirs.text).toContain('belongs to other')
     expect(theirs.text).not.toContain('belongs to thesis')
   })
 
   test('two projects with the same document name are still two piles', () => {
     rpc('add_note', { ...OF_PROJECT, path: '/chapters/intro.tex', body: 'the thesis intro' })
-    rpc('add_note', { project: 'other', projectPath: other, path: '/chapters/intro.tex', body: 'the other intro' })
+    rpc('add_note', { ...OF_OTHER, path: '/chapters/intro.tex', body: 'the other intro' })
     const mine = rpc('notes', { ...OF_PROJECT, path: '/chapters/intro.tex' })
     expect(mine.text).toContain('the thesis intro')
     expect(mine.text).not.toContain('the other intro')
   })
 
-  test('a note nobody said a project about is its own pile, not merged into an open one', () => {
-    rpc('add_note', { path: '/chapters/intro.tex', body: 'unattributed' })
+  /*
+   * There is no unattributed pile any more, and this test is where that shows.
+   * It used to assert that a note written with no project went into a bucket of
+   * its own inside the one shared file. There is no shared file: a note has to
+   * be written INTO a project, so a call that names none is refused rather than
+   * filed somewhere nobody will look.
+   *
+   * The refusal has to name the argument, because the reader is an agent that
+   * can fix it — a bare "no" is the kind of refusal an agent routes around.
+   */
+  test('a call that names no project is refused, and told which argument to send', () => {
+    const written = rpc('add_note', { path: '/chapters/intro.tex', body: 'unattributed' })
+    expect(written.failed).toBe(true)
+    expect(written.text).toContain('projectPath')
+    expect(written.text).toContain('will not guess')
+
+    const read = rpc('notes', { everything: true })
+    expect(read.failed).toBe(true)
+    expect(read.text).toContain('projectPath')
+
+    /* And nothing was written anywhere by the attempt. */
     expect(rpc('notes', { ...OF_PROJECT, everything: true }).text).not.toContain('unattributed')
-    expect(rpc('notes', { everything: true }).text).toContain('unattributed')
+    expect(rpc('notes', { ...OF_OTHER, everything: true }).text).not.toContain('unattributed')
+  })
+
+  /* A note id addresses a note inside one project's file, so the tools that
+     take one need the project too. That is new: it was possible without before
+     only because there was a single file holding everybody's notes. */
+  test('a tool that names a note by id is refused without the project as well', () => {
+    const id = idOf(rpc('add_note', { ...OF_PROJECT, path: CHAPTER, body: 'a note to reply to' }).text)
+    expect(rpc('reply_to_note', { note: id, body: 'x' }).text).toContain('projectPath')
+    expect(rpc('reply_to_note', { ...OF_PROJECT, note: id, body: 'x' }).failed).toBe(false)
   })
 })
 
@@ -302,7 +355,7 @@ describe('the page’s own door', () => {
       'POST',
       '/api/note',
       new URLSearchParams(),
-      { op: 'add', project: 'thesis', projectPath: project, path: CHAPTER, page: 1, from: FROM, to: TO, quoted: 'A module is one origin or it is nothing.', body: 'from the page' },
+      { op: 'add', projectPath: project, path: CHAPTER, page: 1, from: FROM, to: TO, quoted: 'A module is one origin or it is nothing.', body: 'from the page' },
       TICKET,
     )
     expect((written?.body as { ok: boolean }).ok).toBe(true)
