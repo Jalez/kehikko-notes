@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join } from 'node:path'
+import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
+import { isAbsolute, join } from 'node:path'
 
-import { KEHIKOT_DIR, moduleDir, moduleFile, withKehikotIgnored, within } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'roadmap-module-protocol'
 
 import { ID } from './manifest.ts'
 
@@ -51,8 +51,10 @@ import { ID } from './manifest.ts'
  * whether a note's anchor still points at the words it was written about. It
  * never writes one, never caches one, and never returns its bytes to anybody.
  * See `notes/anchor.ts` and `notes/source.ts`. What is new is that this app now
- * writes ONE file into that repository, in a folder named after the host, which
- * `.gitignore` is told about the moment it is created.
+ * writes ONE file into that repository, in a folder named after the host.
+ * Whether that folder is committed with the repository is not this module's
+ * business and is no longer decided here: it is a checkbox in the host, per
+ * project. See `shareKehikot` in the host's `server/projects.ts`.
  *
  * ## Null is a place a person can be, and never a guess
  *
@@ -136,11 +138,13 @@ export function dataFile(projectPath: string | null | undefined): { path: string
 }
 
 /**
- * Make the folder, and tell the project's `.gitignore` about it — once.
+ * Make the folder.
  *
  * Called before a write and not before a read, so that looking at a project
  * never changes it. A person who opens a notes container against a repository and
- * writes nothing should find that repository exactly as they left it.
+ * writes nothing should find that repository exactly as they left it — and that
+ * now holds for the `.gitignore` too, which this module used to append to here
+ * and does not touch at all.
  */
 export function makeDir(projectPath: string | null | undefined): { dir: string | null; trouble: string | null } {
   const root = projectRoot(projectPath)
@@ -149,11 +153,9 @@ export function makeDir(projectPath: string | null | undefined): { dir: string |
 
   const kehikot = join(root.path, KEHIKOT_DIR)
   const dir = moduleDir(root.path, ID)!
-  /* Whether `.kehikot` itself is new, not this module's folder inside it. The
-     `.gitignore` rule covers the whole folder — see `KEHIKOT_IGNORE` — so it is
-     that folder's first appearance that is the moment to mention it. Asking
-     about this module's own directory would mean the second module to write
-     appending a second copy of a rule already in the file. */
+  /* Whether `.kehikot` itself is new, not this module's folder inside it. This
+     used to decide whether to append an ignore rule, and now decides nothing —
+     see below for who owns that and why it is not four modules. */
   const fresh = !existsSync(kehikot)
   mkdirSync(dir, { recursive: true })
   /* After the mkdir as well as before it, and at both levels. `existsSync` said
@@ -165,91 +167,30 @@ export function makeDir(projectPath: string | null | undefined): { dir: string |
     if (escaped) return { dir: null, trouble: escaped }
   }
 
-  /* Only on the run that created it. A project that has removed the ignore rule
-     has said something, and a program that re-added it on every save would be
-     overruling them every few seconds. */
-  if (fresh) ignore(root.path)
+  /*
+   * This used to append `.kehikot/` to the project's `.gitignore` on the run
+   * that created the folder, and it no longer does. The host owns that decision.
+   *
+   * The old shape was four programs with an opinion about one line in somebody
+   * else's repository. Notes, checklist and journeys each wrote it the first
+   * time they made their folder, and learning's migration did too — none of
+   * them able to take it back, none of them aware of the others, and the rule
+   * appearing the first time a module happened to save something, which is not
+   * a moment anybody witnesses. The user's word for it: modules should not
+   * decide if the kehikot folder is gitignored.
+   *
+   * It is a checkbox in the host now, per project, written in one place. See
+   * `shareKehikot` in the host's `server/projects.ts`, and
+   * `withoutKehikotIgnored` in the protocol — the half that was missing, which
+   * is why this could only ever be turned on.
+   *
+   * `fresh` is still returned by the call above and still means what it meant.
+   * Nothing here reads it any more; it is left rather than removed because a
+   * caller that wants to know whether it just created this project's folder is
+   * asking a reasonable question, and the answer costs nothing to keep.
+   */
+  void fresh
   return { dir, trouble: null }
-}
-
-/**
- * Append the ignore rule to the project's `.gitignore`, if it has one.
- *
- * The user was asked whether some of this should be committed so that teammates
- * see it, and said no — "we are still developing this so we don't want to
- * pollute other people with our work" — so everything this app writes is
- * ignored, and the comment in the appended block is what says how to change
- * that later.
- *
- * The text and the idempotence are `withKehikotIgnored`'s: append-only, never a
- * rewrite, never a reorder. That is not tidiness. This is a file in the user's
- * own repository which shows up in their next diff under their name, and a
- * program that normalised it would be putting changes they did not make into
- * their commit.
- *
- * The rule covers the whole `.kehikot/` folder rather than this module's part
- * of it, so four modules writing into one project produce one line between them
- * rather than four — and a fifth module added next year needs no line at all.
- *
- * ## The repository is looked for ABOVE the project, and the file is written AT it
- *
- * Checking `<project>/.git` alone was the first version and it is wrong for the
- * project this whole change was made for. The thesis these notes belong to is at
- * `…/CS-DEGREE/05_drafts/thesis_latex`, which has no `.git` of its own and sits
- * several directories inside one. Under the narrower check it would have been
- * read as "not a repository", got no ignore rule, and put `.kehikot/` into
- * somebody's `git status` — the exact pollution the user asked to avoid, in the
- * one project that matters most here.
- *
- * So the search walks up. What it does NOT do is write at the repository root:
- * the `.gitignore` goes at the project root, because git honours one in any
- * directory and that is both the correct scope — this folder is under this
- * project, not under every sibling of it — and the smallest edit to somebody
- * else's repository. Appending to a `.gitignore` five levels up, covering work
- * that has nothing to do with this, is a much larger thing to do uninvited.
- *
- * A project with no `.git` anywhere above it gets nothing at all. There is no
- * repository for a rule to mean anything to, and creating one — or an ignore
- * file — would be this app deciding how somebody keeps their folder.
- *
- * Every failure here is swallowed on purpose. Not being able to write somebody's
- * `.gitignore` is not a reason to refuse to save their notes.
- */
-function ignore(root: string): void {
-  try {
-    if (!inRepository(root)) return
-    const path = join(root, '.gitignore')
-    /* A repository with no `.gitignore` gets one holding only this block, which
-       is answering a question the repository had not been asked yet rather than
-       editing somebody's file. */
-    const before = existsSync(path) ? readFileSync(path, 'utf8') : ''
-    const after = withKehikotIgnored(before)
-    if (after !== before) writeFileSync(path, after)
-  } catch {
-    /* Deliberately silent. See above. */
-  }
-}
-
-/**
- * Is this folder inside a git repository — here, or anywhere above it?
- *
- * `.git` is tested with `existsSync` rather than as a directory, because in a
- * worktree and in a submodule it is a FILE holding a pointer. A check that
- * demanded a directory would read a perfectly ordinary checkout as "not a
- * repository" and quietly stop ignoring anything.
- *
- * The walk stops at the filesystem root, and `dirname` reaching a fixed point is
- * what says so — a loop counter would be a second answer to "have we finished"
- * that can disagree with the first.
- */
-function inRepository(root: string): boolean {
-  let at = root
-  for (;;) {
-    if (existsSync(join(at, '.git'))) return true
-    const up = dirname(at)
-    if (up === at) return false
-    at = up
-  }
 }
 
 /** The project, resolved — or null for "no project", or a sentence for a refusal. */

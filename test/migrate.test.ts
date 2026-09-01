@@ -260,15 +260,18 @@ describe('the order, which is the whole safety of this', () => {
 })
 
 describe('what the destination projects get told', () => {
-  test('a migrated project has the folder ignored, once', () => {
+  /* This asked that a migrated project came out with `.kehikot/` ignored. It
+     does not any more, and nothing this module does writes that rule: whether
+     the folder is committed is a checkbox in the host, per project. A migration
+     that quietly added an ignore to every project it touched would be the old
+     behaviour wearing a different hat. */
+  test('a migrated project’s .gitignore is left exactly as it was', () => {
     mkdirSync(join(thesis, '.git'))
     writeFileSync(join(thesis, '.gitignore'), 'build/\n')
 
     const file = oldStore([note('n1', thesis)])
     apply(planFrom(JSON.parse(readFileSync(file, 'utf8'))), file)
 
-    const ignore = readFileSync(join(thesis, '.gitignore'), 'utf8')
-    expect(ignore.startsWith('build/\n')).toBe(true)
-    expect(ignore.split('.kehikot/')).toHaveLength(2)
+    expect(readFileSync(join(thesis, '.gitignore'), 'utf8')).toBe('build/\n')
   })
 })

@@ -189,95 +189,36 @@ describe('the fence, which is realpath and not string comparison', () => {
   })
 })
 
-describe('the line the project’s .gitignore gains', () => {
+describe('the .gitignore this module no longer writes', () => {
   const ignoreFile = () => join(project, '.gitignore')
 
-  test('is added when the folder is first made, and says what the folder is', () => {
-    mkdirSync(join(project, '.git'))
-    writeFileSync(ignoreFile(), 'node_modules\n')
-
-    change(project, { ...NOTE })
-
-    const after = readFileSync(ignoreFile(), 'utf8')
-    expect(after.startsWith('node_modules\n')).toBe(true)
-    expect(after).toContain('.kehikot/')
-    expect(after).toContain('Remove these lines to')
-  })
-
-  /* Once. A second copy of the block would show up in the user's next diff as
-     a change they did not make, in a file they own. */
-  test('is not added twice, however many notes are written afterwards', () => {
-    mkdirSync(join(project, '.git'))
-    writeFileSync(ignoreFile(), 'node_modules\n')
-
-    change(project, { ...NOTE })
-    const once = readFileSync(ignoreFile(), 'utf8')
-    change(project, { ...NOTE, body: 'a second note' })
-    change(project, { ...NOTE, body: 'a third note' })
-
-    expect(readFileSync(ignoreFile(), 'utf8')).toBe(once)
-    expect(once.split('.kehikot/')).toHaveLength(2)
-  })
-
-  /* Somebody who took the rule out said something. Putting it back on the next
-     save would be overruling them every few seconds. */
-  test('is not put back after somebody removes it', () => {
-    mkdirSync(join(project, '.git'))
-    writeFileSync(ignoreFile(), 'node_modules\n')
-    change(project, { ...NOTE })
-
-    writeFileSync(ignoreFile(), 'node_modules\n')
-    change(project, { ...NOTE, body: 'written after the rule was removed' })
-
-    expect(readFileSync(ignoreFile(), 'utf8')).toBe('node_modules\n')
-  })
-
-  test('a project with no repository anywhere above it gets no .gitignore at all', () => {
-    change(project, { ...NOTE })
-    expect(existsSync(join(project, KEHIKOT_DIR, 'notes', 'notes.json'))).toBe(true)
-    expect(existsSync(ignoreFile())).toBe(false)
-    expect(existsSync(join(project, '.git'))).toBe(false)
-  })
-
-  test('a repository with no .gitignore gets one holding only this', () => {
-    mkdirSync(join(project, '.git'))
-    makeDir(project)
-    expect(readFileSync(ignoreFile(), 'utf8')).toContain('.kehikot/')
-  })
-
   /*
-   * The case this whole rule was rewritten for. The thesis holding all 58 notes
-   * is at `…/CS-DEGREE/05_drafts/thesis_latex`: no `.git` of its own, several
-   * directories inside one. A check for `<project>/.git` alone reads that as
-   * "not a repository", writes no rule, and puts `.kehikot/` into somebody's
-   * `git status` — the exact pollution the user asked to avoid, in the one
-   * project where it matters most.
+   * This module used to append `.kehikot/` to the project's `.gitignore` the
+   * first time it made its folder, and there were eight tests here for how it
+   * did it. They are gone with the behaviour.
+   *
+   * It was four programs writing one line in somebody else's repository —
+   * notes, checklist, journeys, and learning's migration — none of them able to
+   * take it back and none aware of the others. The rule appeared the first time
+   * a module happened to save something, which is not a moment anybody
+   * witnesses. Whether that folder is committed is now a checkbox in the host,
+   * per project, with one writer: `shareKehikot` in the host's
+   * `server/projects.ts`.
+   *
+   * What is left is the assertion that this module keeps its hands off, because
+   * "we removed some code" is not a property and the way this comes back is
+   * somebody restoring a helper that looks harmless on its own.
    */
-  test('finds the repository above the project, and writes the file AT the project', () => {
-    const repo = join(home, 'a-repository')
-    const deep = join(repo, '05_drafts', 'thesis_latex')
-    mkdirSync(join(repo, '.git'), { recursive: true })
-    mkdirSync(deep, { recursive: true })
-    writeFileSync(join(repo, '.gitignore'), 'build/\n')
-
-    change(deep, { ...NOTE })
-
-    /* At the project, because git honours a `.gitignore` in any directory and
-       this folder is under this project rather than under every sibling of it.
-       Appending five levels up would be a much larger edit to somebody's
-       repository than the situation calls for. */
-    expect(readFileSync(join(deep, '.gitignore'), 'utf8')).toContain('.kehikot/')
-    expect(readFileSync(join(repo, '.gitignore'), 'utf8')).toBe('build/\n')
-
-    rmSync(repo, { recursive: true, force: true })
+  test('saving a note leaves the project’s .gitignore alone', () => {
+    mkdirSync(join(project, '.git'), { recursive: true })
+    change(project, { ...NOTE })
+    expect(existsSync(ignoreFile())).toBe(false)
   })
 
-  /* In a worktree and in a submodule, `.git` is a FILE holding a pointer. A
-     check that demanded a directory would read an ordinary checkout as "not a
-     repository" and quietly stop ignoring anything. */
-  test('a .git that is a file, as in a worktree, still counts as a repository', () => {
-    writeFileSync(join(project, '.git'), 'gitdir: /somewhere/else/.git/worktrees/x\n')
+  test('and does not touch one that is already there', () => {
+    mkdirSync(join(project, '.git'), { recursive: true })
+    writeFileSync(ignoreFile(), 'node_modules\n')
     change(project, { ...NOTE })
-    expect(readFileSync(ignoreFile(), 'utf8')).toContain('.kehikot/')
+    expect(readFileSync(ignoreFile(), 'utf8')).toBe('node_modules\n')
   })
 })
