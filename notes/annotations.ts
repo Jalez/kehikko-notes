@@ -39,7 +39,7 @@
  * Nothing here touches a disk or imports `node:` anything — it takes a string —
  * so it stays importable from the page for the reason `shape.ts` does.
  */
-import { readable } from './readable.ts'
+import { readable, withoutRules } from './readable.ts'
 
 /** Which construct an annotation came out of. */
 export type AnnotationKind = 'todo' | 'comment'
@@ -111,34 +111,26 @@ function saysSomething(text: string): boolean {
   return /[\p{L}\p{N}]/u.test(text)
 }
 
-/**
- * A line that is a horizontal rule rather than a sentence.
- *
- * ## Why `saysSomething` was not enough, and the container that proved it
+/*
+ * Why `saysSomething` was not enough, and where the answer went.
  *
  * That test is over a WHOLE comment run, so it drops a run that is nothing but
  * a rule and keeps a run that is a rule, four sentences, and another rule —
  * which is how every chapter of the thesis this was first run against opens.
  * The note that came out carried sixty equals signs on its first line, and a
  * sixty-character unbreakable string is exactly the min-content floor that made
- * a 220-pixel container 1187 pixels wide in an earlier measurement. It read as noise
- * as well: a rule is a thing the author drew in an editor to separate one part
- * of a file from another, and it says nothing about the paper.
+ * a 220-pixel container 1187 pixels wide in an earlier measurement.
  *
- * So rules are dropped LINE BY LINE and the sentences between them are kept.
- * The test is deliberately narrow — four or more of one punctuation character
- * and nothing else — because anything looser starts eating prose: `---` is an
- * em dash somebody typed and `##` is a heading in a comment written by
- * somebody with Markdown in their fingers, and both are things the author said.
+ * `withoutRules` in `readable.ts` is that rule now, and the essay on it says
+ * why it moved: this file only sees text on the way IN, and the two strings a
+ * row draws that can never be lifted again — a withdrawn note's body, and what
+ * a note used to say before this app re-read it — needed the same answer.
  *
- * The `from`/`to` of the annotation are NOT changed by this, and neither is
+ * The `from`/`to` of the annotation are NOT changed by it, and neither is
  * `source`. Those describe where the construct sits in the file and what is
  * exactly there, which is what `anchor.ts` re-finds the passage by. Only the
  * readable `text` — the note's body — has the rules taken out of it.
  */
-function isRule(line: string): boolean {
-  return /^([=\-_*~#+.])\1{3,}$/.test(line.trim())
-}
 
 /** `\begin{document}`, which is where a `.tex` file stops being a build and starts being a paper. */
 const DOCUMENT_BEGINS = '\\begin{document}'
@@ -283,15 +275,11 @@ function commentRuns(source: string): Annotation[] {
 
   const flush = () => {
     if (runFrom < 0) return
-    /* The rules taken out and the sentences between them kept — see `isRule`.
-       Done on the way into the text and never to `from`, `to` or `source`,
-       which go on describing the construct exactly as it sits in the file. */
-    const text = readable(
-      held
-        .filter((line) => !isRule(line))
-        .join('\n')
-        .replace(/\n{3,}/g, '\n\n'),
-    ).trim()
+    /* The rules taken out and the sentences between them kept — see
+       `withoutRules`. Done on the way into the text and never to `from`, `to`
+       or `source`, which go on describing the construct exactly as it sits in
+       the file. */
+    const text = readable(withoutRules(held.join('\n'))).trim()
     if (saysSomething(text)) {
       out.push({ kind: 'comment', text, from: runFrom, to: runTo, source: source.slice(runFrom, runTo) })
     }

@@ -86,9 +86,18 @@ export const PREFERRED_PORT = 7940
  *   argument does not carry here yet, and shipping the machinery for it would
  *   be a second thing to keep working. It is the obvious next capability.
  * - **`state:keep` — not declared.** There is nothing to remember. What this
- *   container shows is decided entirely by the context it is handed; a filter
- *   remembered across sessions would be a container showing something other than
- *   what the reader is pointing at, which is the one thing it must not do.
+ *   container shows is decided entirely by the context it is handed, and the
+ *   SCOPE in particular is never remembered: a container that reopened on the
+ *   passage somebody was reading last week would be showing something other
+ *   than what the reader is pointing at, which is the one thing it must not do.
+ *
+ *   Its two filters are remembered, and by the host rather than here. They are
+ *   offered over `roadmap.filters` and come back in `context.filters`, which is
+ *   per container and survives an app quit — so `show resolved` is a property
+ *   of the box a person arranged rather than of this module, and it arrives in
+ *   the greeting before the first render instead of after it. That is the
+ *   opposite of state this app keeps: nothing is stored on this side, and a
+ *   host that has never heard of filters simply draws no control.
  *
  * ## `prompt: false`
  *

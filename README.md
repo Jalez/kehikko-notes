@@ -46,6 +46,14 @@ Narrowing always says what it narrowed away. A reader who selects a sentence and
 sees two notes must be able to tell "there are two notes here" from "there are
 eleven and nine are behind a filter nobody mentioned".
 
+The two filters this page has — whether resolved notes are in the list, and
+whether the preamble comments it no longer lifts are — are OFFERED rather than
+drawn, over `roadmap.filters`. The host draws one control in the container
+header and sends the choice back in `context.filters`, remembered per container.
+The counts stay on the page, because a host cannot count rows it does not
+render. The scope ladder is not a filter and did not move: it is the way back
+out of a narrowed list and it belongs where a lost reader is looking.
+
 ## Anchors rot, and this says so
 
 A note is anchored to a byte range, and somebody adds a paragraph forty lines up.

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import { annotationsIn } from '../notes/annotations.ts'
-import { readable } from '../notes/readable.ts'
+import { readable, withoutRules } from '../notes/readable.ts'
 
 /**
  * A note body that reads as prose, and the much larger set of things this pass
@@ -226,5 +226,44 @@ describe('what the pass must not disturb about identity', () => {
   test('comment runs get the same reading as macros do', () => {
     const source = ['% The Finnish \\emph{tiivistelm\\"a} is still missing.', 'A paragraph.'].join('\n')
     expect(annotationsIn(source)[0]?.text).toBe('The Finnish tiivistelmä is still missing.')
+  })
+})
+
+describe('a divider is a line somebody drew in an editor, and never a sentence', () => {
+  /*
+   * `withoutRules` moved here from `annotations.ts`, where it only ever saw
+   * text on the way IN. The two strings a row draws that can never be lifted
+   * again — the body of a note this app has stopped lifting, and `reread.was`,
+   * what a note used to say — are pre-rule text, and both carry sixty equals
+   * signs on the first line. Sixty unbreakable characters are the min-content
+   * floor that once made a 220-pixel container 1187 pixels wide.
+   */
+  const rule = '='.repeat(60)
+
+  test('the rule goes and the sentences around it stay', () => {
+    expect(withoutRules([rule, 'Chapter 1 — Introduction', 'Revised order.', rule].join('\n'))).toBe(
+      'Chapter 1 — Introduction\nRevised order.',
+    )
+  })
+
+  test('prose that merely looks like punctuation is left alone', () => {
+    /* `---` is an em dash somebody typed and `##` is a heading written by
+       somebody with Markdown in their fingers. Four or more of ONE character
+       and nothing else is the whole test, and anything looser eats writing. */
+    expect(withoutRules('--- and ## are things the author said')).toBe('--- and ## are things the author said')
+    expect(withoutRules('###')).toBe('###')
+  })
+
+  test('and a body that was nothing but rules keeps them, rather than becoming empty', () => {
+    /* Unreachable from `annotations.ts`, which asks `saysSomething` first. A
+       stored body written under an older rule can be anything at all, and a row
+       rendering an empty paragraph would be this pass deleting a note on
+       screen. */
+    expect(withoutRules(rule)).toBe(rule)
+  })
+
+  test('a note lifted today has been through it already', () => {
+    const source = [`% ${rule}`, '% Chapter 1 — Introduction', `% ${rule}`, '% Revised order.'].join('\n')
+    expect(annotationsIn(source)[0]?.text).toBe('Chapter 1 — Introduction\nRevised order.')
   })
 })

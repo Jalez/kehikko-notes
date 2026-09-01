@@ -4,6 +4,7 @@ import type { Anchored } from '@/store/ask.ts'
 import { sourceOf } from '../../notes/shape.ts'
 import { Badge } from '@/components/ui/badge.tsx'
 import { fileOf } from '../../notes/scope.ts'
+import { withoutRules } from '../../notes/readable.ts'
 import { ROOMY, type Room } from '../../notes/room.ts'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -166,14 +167,38 @@ export function NoteRow({
   const [replying, setReplying] = useState(false)
   const [draft, setDraft] = useState('')
   /**
-   * Whether this row has been opened in a container too small to draw it whole.
+   * Whether this row has been opened.
    *
    * Per row and not one at a time, because a person comparing two notes has
    * already told you they want both: a list that closed the last one would be
    * making them press twice to do the thing they just did once.
+   *
+   * It used to mean "opened in a container too small to draw it whole", and
+   * there is no such container any more — `room.bodyLines` caps a body at every
+   * size, so every row is a prefix of itself and every row opens. See `MOST`.
    */
   const [open, setOpen] = useState(false)
-  const whole = !room.compact || open
+  /**
+   * Whether what this app used to make of the same annotation is shown.
+   *
+   * Its own state rather than `open`, because they answer two different
+   * questions: a reader opening a row wants the end of the note, and almost
+   * nobody opening a row wants a paragraph about how this app used to read it.
+   * Folding the two together would put the noise back on every opened row.
+   */
+  const [saidBefore, setSaidBefore] = useState(false)
+  /**
+   * What a row is holding back, and it is never nothing.
+   *
+   * A compact row is holding back its fields; every row, compact or not, may be
+   * holding back the end of a long note, and this component cannot know which
+   * without measuring text — which is the browser's job and not a decision this
+   * file is allowed to make wrongly. So the press is always offered. The cost
+   * is a press on a six-word note that does nothing visible; the alternative
+   * was a row whose ending is unreachable, which is the failure the cap would
+   * otherwise have introduced.
+   */
+  const holdingBack = room.compact && !open
   /* Undefined for `exact`, and for `exact` alone. An anchor state this file has
      never heard of falls back to `unchecked`, which is the honest word for a
      verdict nobody here can read. */
@@ -209,30 +234,30 @@ export function NoteRow({
    * in the action row is the same call, kept because a row you can only reach
    * with a mouse is a row half the people using it cannot reach.
    *
-   * In a small container the same press ALSO opens the row, and the two are one
-   * gesture rather than two controls because they are one intention: a person
-   * who picks a note out of a list of twenty wants to see that note. Where the
-   * row is drawn whole there is nothing to open and the press only points.
+   * The same press ALSO opens the row, and the two are one gesture rather than
+   * two controls because they are one intention: a person who picks a note out
+   * of a list of twenty wants to see that note. That used to be true only in a
+   * small container; the body is capped at every size now, so it is true
+   * everywhere and there is no size at which this press does only half of it.
+   *
+   * Every row takes it, where it used to be only a row somebody could point at
+   * or a row in a compact container: a row that could not be pressed would be a
+   * row whose last sentence nobody can read. `closest` below is what keeps the
+   * buttons inside the row meaning what they say.
    */
   const press = () => {
-    if (room.compact) setOpen((was) => !was)
+    setOpen((was) => !was)
     actions.point?.(one)
   }
-  /* Pressable when there is anybody to tell, and also when there is something
-     to open — which is the case an unframed page is in, and the case a keyboard
-     is always in. `closest` below is what keeps the buttons inside the row
-     meaning what they say. */
-  const pressable = actions.point !== null || room.compact
-
   return (
     <li
       data-testid="note"
       data-anchor={anchor.state}
       data-note-id={note.id}
       data-points={actions.point ? '1' : undefined}
-      data-open={room.compact ? (open ? '1' : '0') : undefined}
+      data-open={open ? '1' : '0'}
       /*
-       * Reachable from a keyboard, and only where it does something.
+       * Reachable from a keyboard, on every row.
        *
        * The action row used to be the whole of that story — the button at the
        * end of every row existed because a row you can only reach with a mouse
@@ -240,20 +265,19 @@ export function NoteRow({
        * the action row is one of the things not drawn, so the row itself has to
        * take the tab stop over: without this, everything a compact row hides
        * would be reachable by pointer alone, which is the same failure wearing
-       * a smaller layout.
+       * a smaller layout. The cap put the end of a long note behind the same
+       * press in every container, so the tab stop is on every row too.
        */
-      role={pressable ? 'button' : undefined}
-      tabIndex={pressable ? 0 : undefined}
-      aria-expanded={room.compact ? open : undefined}
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
       onKeyDown={(event) => {
-        if (!pressable) return
         if (event.key !== 'Enter' && event.key !== ' ') return
         if ((event.target as HTMLElement).closest('button, a, textarea, input, form')) return
         event.preventDefault()
         press()
       }}
       onClick={(event) => {
-        if (!pressable) return
         /* Anything with its own meaning for a press keeps it. */
         if ((event.target as HTMLElement).closest('button, a, textarea, input, form')) return
         press()
@@ -270,14 +294,14 @@ export function NoteRow({
          replacement for any of it — it cannot be read by touch and it is gone
          the moment a finger is on the screen — which is why the press exists;
          it is the cheap half of the same promise for whoever has a pointer. */
-      title={whole ? undefined : `${note.path}\n${where}\n${note.by}`}
+      title={holdingBack ? `${note.path}\n${where}\n${note.by}` : undefined}
       className={
         'min-w-0 border-b border-border/60 last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
         /* Four pixels a row, and they decide whether a 200-pixel container holds
            two notes or one: measured at 83 pixels a row against 164 pixels of
            window, which is one row and a half. */
         + (room.compact ? ' py-1.5' : ' py-2')
-        + (pressable ? ' cursor-pointer hover:bg-muted/40' : '')
+        + ' cursor-pointer hover:bg-muted/40'
         + (pointed ? ' -mx-1 border-l-2 border-l-foreground bg-muted/60 px-1' : '')
       }
     >
@@ -356,25 +380,75 @@ export function NoteRow({
 
       {/* The words, which are the one thing every row keeps at every size. A
           long one is clamped rather than cut off mid-sentence by the frame:
-          two lines that end in an ellipsis say "there is more of this" where a
-          paragraph running under the bottom edge says nothing at all. */}
+          six lines that end in an ellipsis say "there is more of this" where a
+          paragraph running under the bottom edge says nothing at all.
+
+          `withoutRules` because a stored body can carry a divider the author
+          drew in their editor — see the essay there. Live notes have had them
+          taken out on the way in since the reading changed; the ones this app
+          has STOPPED lifting are frozen records that will never be read again,
+          and they are drawn — behind the host's `preamble comments` filter —
+          with sixty equals signs on the first line. */}
       <p
         data-testid="body"
         style={clamped(room.bodyLines, open)}
         className="mt-1.5 min-w-0 text-sm"
       >
-        {note.body}
+        {withoutRules(note.body)}
       </p>
 
-      {/* What this app used to make of the same annotation, when its own reading
-          of it changed. Under the body, because the two are read together, and
-          kept forever because the replies below were written against the old
-          words. See `Source.reread`. */}
+      {/*
+        What this app used to make of the same annotation, when its own reading
+        of it changed.
+
+        ## Six words and a press, where there were forty and a paragraph
+
+        This line is not optional and must not be deleted: the replies below a
+        re-read note were written against the OLD words, and a conversation
+        answering words nobody can see is a conversation that reads as nonsense.
+
+        What it may not do is drown the note it is about. It printed the first
+        two hundred characters of the old body — which on a re-read note is the
+        beginning of the body it sits directly UNDER, differing by a rule line
+        and a bit of markup — under a sentence forty words long, on seventeen of
+        the fifty-two notes in the thesis this module is used on. Three quarters
+        of that row was this app talking about itself.
+
+        So: a marker saying THAT the reading changed and when, and the old words
+        behind the press on the marker. Same promise as the row itself — less,
+        never other, and nothing unreachable. The date is the whole of the
+        marker's information: a person who remembers replying last week can see
+        at a glance whether their reply predates the change.
+      */}
       {source?.reread && (open || room.said) ? (
-        <p data-testid="reread" className="mt-1 min-w-0 text-[0.7rem] text-muted-foreground">
-          This app read the same annotation differently before {source.reread.at.slice(0, 10)}. It used to show:{' '}
-          <span className="italic">{source.reread.was.slice(0, 200)}</span>
-        </p>
+        <div data-testid="reread" className="mt-1 min-w-0 text-[0.7rem] text-muted-foreground">
+          {/* A real button, because it is a press: the row's own `closest`
+              check hands it its meaning, and a keyboard finds it in order. */}
+          <button
+            type="button"
+            className="underline decoration-dotted underline-offset-2"
+            aria-expanded={saidBefore}
+            onClick={() => setSaidBefore((was) => !was)}
+          >
+            re-read on {source.reread.at.slice(0, 10)}
+          </button>
+          {saidBefore ? (
+            <p data-testid="reread-was" className="mt-1 min-w-0">
+              {/* The sentence the marker replaced, kept for the reader who
+                  pressed it: they asked what changed, and "it used to show" is
+                  the answer the marker's four words cannot carry. */}
+              It used to show:{' '}
+              <span className="italic">
+              {/* Frozen text: this note was adopted by its `quoted` slice and
+                  the words below are what the old rules made of it, so no
+                  later re-read will ever clean them. The divider goes here or
+                  nowhere — and sixty unbreakable characters in a 220-pixel
+                  column are a min-content floor, not merely noise. */}
+                {withoutRules(source.reread.was)}
+              </span>
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {/* Why this app stopped lifting it, in the words the store holds. Only
@@ -473,10 +547,10 @@ export function NoteRow({
               {anchor.from === null ? 'open in the paper' : 'show in the paper'}
             </Button>
           ) : null}
-          {/* The way back to a row the size of the others. Only where a press
-              opened this one — a container drawing every row whole has nothing
-              to fold. */}
-          {room.compact && open ? (
+          {/* The way back to a row the size of the others, wherever a press
+              opened this one. Not `room.compact` any more: a roomy container
+              caps the body too, so it has something to fold. */}
+          {open ? (
             <Button size="container" variant="ghost" onClick={() => setOpen(false)}>
               less
             </Button>

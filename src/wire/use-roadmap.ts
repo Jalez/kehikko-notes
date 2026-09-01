@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { ModuleContext } from 'roadmap-module-protocol'
+import type { FilterChoice, FilterGroup, ModuleContext } from 'roadmap-module-protocol'
 
 import { connect, type Connection, type HostEvents } from 'roadmap-module-protocol/client'
 
@@ -96,8 +96,37 @@ export interface Roadmap {
    * `src/view/screens.tsx`.
    */
   passage: Passage | null
+  /**
+   * Which of the filters this page offered are chosen for THIS container.
+   *
+   * `{}` before any host has said anything, and `{}` from a host that has never
+   * heard of filters — which is the true answer in both cases: nothing is
+   * narrowed. `notes/sift.ts` reads it, and reads it leniently, because the
+   * greeting carries a remembered choice before this page has said what it
+   * offers.
+   *
+   * Compared field by field before it is written, for the same reason `passage`
+   * is: a context arrives after every change anywhere on the canvas, carrying a
+   * fresh object every time, and a new identity here means re-asking this app's
+   * own store for the same notes several times a second.
+   */
+  chosen: FilterChoice
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
+  /**
+   * Say what this page can be narrowed by, so the host can draw the control.
+   *
+   * Fire and forget, like `resize`: the host may draw the offer, may draw part
+   * of it, or may never have heard of the idea. What comes back is not an
+   * answer but a context with `filters` in it.
+   *
+   * Stable across renders, so the effect that sends the offer can depend on the
+   * one thing that makes the offer change — which here is a COUNT, because one
+   * of the labels carries one. The client replays the last offer after every
+   * greeting, so a page that stopped sending would still be drawn correctly
+   * after a reload; a page whose count has changed must send again itself.
+   */
+  filters: (groups: FilterGroup[]) => void
   /**
    * Point every container on the canvas at a passage.
    *
@@ -146,6 +175,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
   const [project, setProject] = useState<string | null>(null)
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [passage, setPassage] = useState<Passage | null>(null)
+  const [chosen, setChosen] = useState<FilterChoice>({})
   const host = useRef<Connection | null>(null)
 
   /**
@@ -188,6 +218,10 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
        * because the host builds a new object each time whatever happens.
        */
       setPassage((was) => (same(was, context.passage ?? null) ? was : (context.passage ?? null)))
+      /* Compared before it is written, and for the reason directly above: this
+         is a record rebuilt by the host on every context, and a fresh identity
+         here re-asks this app's store for the same list of notes. */
+      setChosen((was) => (agrees(was, context.filters ?? {}) ? was : (context.filters ?? {})))
     }
 
     /**
@@ -233,6 +267,12 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
 
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
+  /* Sent unconditionally: a page with no host posts into nothing, which costs
+     nothing, and a page that checked first would have to know whether the
+     greeting has arrived yet — which is exactly the race the client's own
+     replay exists to end. */
+  const filters = useCallback((groups: FilterGroup[]) => host.current?.filters(groups), [])
+
   const point = useCallback((pointed: Passage | null) => {
     const conversation = host.current
     if (!conversation) return
@@ -240,9 +280,22 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
   }, [])
 
   return useMemo(
-    () => ({ where, project, projectPath, passage, resize, point }),
-    [where, project, projectPath, passage, resize, point],
+    () => ({ where, project, projectPath, passage, chosen, resize, filters, point }),
+    [where, project, projectPath, passage, chosen, resize, filters, point],
   )
+}
+
+/**
+ * Whether two filter choices say the same thing.
+ *
+ * Key by key, because the host builds a new record on every context whatever
+ * happens — see `same` below, which exists for the same reason and about the
+ * same failure.
+ */
+function agrees(a: FilterChoice, b: FilterChoice): boolean {
+  const keys = Object.keys(a)
+  if (keys.length !== Object.keys(b).length) return false
+  return keys.every((key) => a[key] === b[key])
 }
 
 /** Whether two passages say the same thing. Field by field, because the object is rebuilt every context. */

@@ -9,7 +9,10 @@
  *   - `fully`: how many notes are entirely on screen at rest. This was ZERO at
  *     220x300, 320x200 and 460x360 before the compact row existed -- twenty
  *     notes on one chapter came to 6501 pixels of document inside a 300-pixel
- *     window, and the first row alone was 712 of them. It is now 3, 2 and 3.
+ *     window, and the first row alone was 712 of them. It is 1, 1 and 3 at rest and
+ *     2, 2 and 3 after one flick, on a chapter whose first note is longer than
+ *     the cap -- see `whole` below, which is the number this one was demoted in
+ *     favour of.
  *   - `cut`: how many pixels of the top row are above the fold after a small
  *     scroll (70px, about one flick of a trackpad). It was 4 -- the worst
  *     possible number, because a row cut by four pixels looks deliberate. It is
@@ -26,6 +29,15 @@
  *     the same layout measured `fully: 3, whole: 0`. Three notes were on screen
  *     and every one of them was two lines of a note that wanted twenty, which
  *     is what the owner was looking at when they asked for one note in full.
+ *
+ *     It is deliberately NOT expected to be every row now. `MOST` in
+ *     `notes/room.ts` caps a body at six lines at every size — the owner's
+ *     second complaint, a row with ninety words on it — so a row carrying a
+ *     note longer than that is clipped on purpose and `clippedOnScreen` counts
+ *     it. What the cap bought is measurable here instead: the list on one
+ *     chapter went from 3519 pixels of document to 2627 at 220x300, the first
+ *     row from 239 pixels to 139, and 900x700 went from three notes fully on
+ *     screen to four.
  *   - `write`: what the press that adds a note is called. It is an icon now, so
  *     its name is an attribute rather than something a person can read off the
  *     screen, and a run where `named` is null has found the exact failure this

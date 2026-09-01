@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ID } from '../manifest.ts'
 import { keyOf, shownAt as heldAt, standing, type Pointed } from '../notes/pointed.ts'
 import { briefOf, fileOf, scopeOf, type Scope } from '../notes/scope.ts'
+import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
 
 import { snappable } from '../notes/room.ts'
 
@@ -75,7 +76,6 @@ export function App() {
    * already had a name for.
    */
   const [widen, setWiden] = useState<null | 'document' | 'everything'>(null)
-  const [withResolved, setWithResolved] = useState(false)
   const [draft, setDraft] = useState('')
   /**
    * Whether the box for writing one is open.
@@ -91,8 +91,6 @@ export function App() {
    */
   const [writing, setWriting] = useState(false)
   const [round, setRound] = useState(0)
-  /** Whether the notes this app has stopped lifting are on screen. One press. */
-  const [showWithdrawn, setShowWithdrawn] = useState(false)
   /**
    * Whether some row is taller than the window, and the scroller must therefore
    * let a reader rest anywhere in it.
@@ -151,7 +149,25 @@ export function App() {
     )
   }, [])
 
-  const { where, project, projectPath, passage, resize, point } = useRoadmap(ID, onGoto)
+  const { where, project, projectPath, passage, chosen, resize, filters, point } = useRoadmap(ID, onGoto)
+
+  /**
+   * The two things this list can be narrowed by, which the host now draws.
+   *
+   * Read off the context on every render and never remembered here, so a press
+   * in the container header and a move between two containers of this module
+   * both land the same way — the choice belongs to the container, and the host
+   * is the only thing that knows which container this is. `notes/sift.ts` reads
+   * an unrecognised option leniently, and the essay there says why both halves
+   * have to.
+   *
+   * There is no press left on this page for either of them, and none is needed:
+   * unframed there is no context, no `projectPath` and therefore no list at all
+   * — the page is `NoProject` — so the only reader who can see these notes is a
+   * reader inside a host.
+   */
+  const withResolved = resolvedShown(chosen)
+  const showWithdrawn = preambleShown(chosen)
 
   /**
    * How big the box is, and therefore what is worth drawing in it.
@@ -431,6 +447,34 @@ export function App() {
     }),
     [write, busy, point, where],
   )
+
+  /**
+   * What this container can be narrowed by, said whenever the answer changes.
+   *
+   * ## Why this is an effect with a dependency rather than one call at mount
+   *
+   * `kehikko-notifications` — the module this was converted from — sends its
+   * offer once, on the line after `listen()`, and is right to: its two labels
+   * are `All` and `This kehikko` and they never change. One of these labels
+   * carries a COUNT, `3 preamble comments`, and the protocol puts the count in
+   * the label deliberately, because a host cannot count rows it does not
+   * render, in a document it cannot read, in a frame on another origin. So the
+   * words change whenever the scope does — a different chapter has a different
+   * number of them, and most have none at all — and a page that sent once would
+   * leave the host drawing a number from a document nobody is looking at.
+   *
+   * The offer replaces the last one whole, which is what lets the group vanish
+   * entirely when the count is zero rather than becoming a press that reveals
+   * nothing. See `offer` in `notes/sift.ts`.
+   *
+   * The count is the only dependency. `filters` is stable, and re-sending an
+   * identical offer on every render would be a message a second at every host
+   * on the canvas for no change anybody could see.
+   */
+  const preambleComments = looked?.withdrawn.length ?? 0
+  useEffect(() => {
+    filters(offer(preambleComments))
+  }, [filters, preambleComments])
 
   /**
    * How tall this page would like to be, asked for whenever what it draws
@@ -761,31 +805,25 @@ export function App() {
           {looked?.withdrawn.length ? (
             <section data-testid="withdrawn-group" className="min-w-0 space-y-1">
               {/*
-               * A press, and no standing sentence above it.
+               * The count, which stayed here when the press left.
                *
-               * What these are is narrow and specific: `%` comments from before
-               * `\begin{document}` -- the document class, the fonts, the macros
-               * that define the note commands. This app used to read them as notes
-               * about the text and no longer does.
+               * The press is the host's now — `N preamble comments` is a filter
+               * group in the container header, see `notes/sift.ts` — and the
+               * number was the useful half of the button it replaces. These are
+               * notes this app has STOPPED lifting, so a reader who never knew
+               * they existed has to be told there are some; a host cannot count
+               * rows it does not render, and the label it draws is out of sight
+               * until somebody opens a menu.
                *
-               * It said so in a line that stood there always, and the line said
-               * "from this file's build rather than its argument", which is this
-               * codebase's own metaphor and meant nothing to the person reading it
-               * -- they said as much. A reader who has never seen these notes needs
-               * no sentence at all; one who remembers them needs the plain word for
-               * where they came from, which is `preamble`, and needs it once, when
-               * they go looking.
+               * Only while they are hidden. With the rows on screen the
+               * sentence under this says what they are, and a count over a list
+               * a person can see is the list counting itself.
                */}
-              <Button
-                size="container"
-                variant="ghost"
-                data-testid="show-preamble"
-                onClick={() => setShowWithdrawn((was) => !was)}
-              >
-                {showWithdrawn
-                  ? 'hide preamble comments'
-                  : `show ${looked.withdrawn.length} preamble comment${looked.withdrawn.length === 1 ? '' : 's'}`}
-              </Button>
+              {showWithdrawn ? null : (
+                <p data-testid="preamble-hidden" className="min-w-0 text-[0.7rem] text-muted-foreground">
+                  {looked.withdrawn.length} preamble comment{looked.withdrawn.length === 1 ? '' : 's'} not shown.
+                </p>
+              )}
               {showWithdrawn ? (
                 <>
                   <p className="min-w-0 text-[0.7rem] text-muted-foreground">
@@ -808,14 +846,16 @@ export function App() {
             </p>
           ) : null}
 
-          <div className="flex min-w-0 flex-wrap gap-1">
-            <Button size="container" variant="ghost" onClick={() => setWithResolved((was) => !was)}>
-              {withResolved ? 'hide resolved' : 'show resolved'}
-            </Button>
-            {/* Widening moved to the heading, where it reads as the way back rather
-                than as one more preference. What is left here is the one thing that
-                genuinely is a preference. */}
-          </div>
+          {/* Nothing stands in this corner any more.
+
+              `show resolved` and `show N preamble comments` were the last two
+              presses here, and both are offers now: the host draws them in the
+              container header, where every module in this family keeps its
+              filters, and this page reads the answer out of `context.filters`.
+              Widening moved to the heading before them and for a different
+              reason — it is the way back rather than a preference, and it
+              belongs where a lost reader is already looking. See
+              `notes/sift.ts`. */}
         </div>
       </div>
 

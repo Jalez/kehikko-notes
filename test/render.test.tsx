@@ -132,6 +132,91 @@ describe('re-anchoring is offered only where it can honestly be done', () => {
   })
 })
 
+describe('a row is never longer than a row, and the rest is one press away', () => {
+  /*
+   * The owner, looking at one row with ninety words on it: "Notes should
+   * perhaps have a word cap to keep things reasonably sized."
+   *
+   * The cap itself is `MOST` in `notes/room.ts`, where the number is argued
+   * with and tested. What is asserted here is the half a person sees: that the
+   * clamp is ON in a container with room to spare — which is where the
+   * complaint was measured and where `bodyLines` used to be null — and that
+   * the words come back on the press that was already on the row.
+   */
+  const long =
+    'Revised order per supervisory feedback: enter through conversational AI first; avoid broad interactive exercises; ' +
+    'keep practical context high-level. Citation style: biblatex, APA 7. Keys in references.bib. Voice calibrated to ' +
+    'the bachelor thesis: American spelling, longer connected sentences, connectives and enumerations, authorial we.'
+
+  test('the words are clamped even in a container that could draw them all', () => {
+    render(<NoteRow one={anchored('exact', { body: long })} actions={actions} />)
+    /* Asserted as "the clamp is on this element" rather than as the number:
+       happy-dom drops `-webkit-line-clamp` when it serialises a style, so the
+       number cannot be read back here. It is `MOST` and it is tested in
+       `test/room.test.ts`, which is where the decision lives; that it reaches a
+       real row unclipped by a browser is what `dev/sizes.mjs` measures. */
+    expect(screen.getByTestId('body').getAttribute('style')).toContain('overflow: hidden')
+  })
+
+  test('and the whole of them comes back on the press that was already there', () => {
+    render(<NoteRow one={anchored('exact', { body: long })} actions={actions} />)
+    fireEvent.click(screen.getByTestId('body'))
+    expect(screen.getByTestId('body').getAttribute('style')).toBeNull()
+    /* And a way back to a row the size of the others, at every size. */
+    expect(screen.getByText('less')).toBeDefined()
+  })
+
+  test('the press is one a keyboard can make, in a roomy container too', () => {
+    const { container } = render(<NoteRow one={anchored('exact', { body: long })} actions={actions} />)
+    const row = container.querySelector('[data-testid="note"]') as HTMLElement
+    expect(row.getAttribute('tabindex')).toBe('0')
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(screen.getByTestId('body').getAttribute('style')).toBeNull()
+  })
+})
+
+describe('what this app used to make of the same annotation', () => {
+  /*
+   * The line under the body that says this app re-read the annotation. It is on
+   * seventeen of the fifty-two notes in the thesis this module is used on,
+   * because a change to the reading re-keyed them, and it must not be deleted:
+   * the replies under one were written against the old words.
+   *
+   * It used to print the first two hundred characters of them, which on those
+   * notes is the beginning of the body it sits directly under, plus the rule
+   * line the old reading left on the front. A marker and a press says the same
+   * thing in six words.
+   */
+  const was = '============================================================\nChapter 1 — Introduction\nRevised order per supervisory feedback.'
+  const reread = {
+    source: { key: 'k', kind: 'comment' as const, present: true, seenAt: 'x', goneAt: null, withdrawn: null, reread: { at: '2026-08-31T09:54:22.061Z', was } },
+  }
+
+  test('is a marker with a date on it, and not the old words', () => {
+    render(<NoteRow one={anchored('exact', reread)} actions={actions} />)
+    const said = screen.getByTestId('reread').textContent ?? ''
+    expect(said).toContain('2026-08-31')
+    expect(said).not.toContain('Revised order')
+    expect(said.length).toBeLessThan(50)
+  })
+
+  test('and the old words are one press behind it, because the replies answer them', () => {
+    render(<NoteRow one={anchored('exact', reread)} actions={actions} />)
+    expect(screen.queryByTestId('reread-was')).toBe(null)
+    fireEvent.click(screen.getByTestId('reread').querySelector('button') as HTMLElement)
+    expect(screen.getByTestId('reread-was').textContent).toContain('Revised order')
+  })
+
+  test('with the divider taken out of them, since a rule is not a sentence', () => {
+    /* Sixty unbreakable characters are the min-content floor that once made a
+       220-pixel container 1187 wide, and `was` is frozen text no re-read will
+       ever clean. See `withoutRules`. */
+    render(<NoteRow one={anchored('exact', reread)} actions={actions} />)
+    fireEvent.click(screen.getByTestId('reread').querySelector('button') as HTMLElement)
+    expect(screen.getByTestId('reread-was').textContent).not.toContain('====')
+  })
+})
+
 describe('nothing long is ever put in a badge', () => {
   /*
    * The trap named in `badge.tsx`: shadcn's badge carries `whitespace-nowrap`,

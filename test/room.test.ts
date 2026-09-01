@@ -38,7 +38,9 @@ describe('a small container shows less, never something else', () => {
     expect(room.actions).toBe(true)
     expect(room.provenance).toBe(true)
     expect(room.notices).toBe(true)
-    expect(room.bodyLines).toBeNull()
+    /* Every field, and still not every line: the cap is what a row IS rather
+       than a concession to a small frame. See `MOST`. */
+    expect(room.bodyLines).toBe(6)
   })
 
   test('nothing is dropped out of order: what a compact row drops, it drops together', () => {
@@ -74,7 +76,28 @@ describe('a small container shows less, never something else', () => {
     expect(roomFor(canvas).quoteLines).toBeGreaterThan(0)
   })
 
-  test('a note gets as many lines as the frame holds, not as many as fit three rows', () => {
+  test('and no row is longer than a row, however much frame there is', () => {
+    /*
+     * The owner, looking at one row carrying ninety words: "Notes should
+     * perhaps have a word cap to keep things reasonably sized."
+     *
+     * The cap is in LINES rather than words and the reason is measured: that
+     * same body is twenty lines at 220 wide and four at 900, so a word count
+     * would cut a row that was already short and leave a page-long one alone.
+     * Six is the number and `MOST` says where it comes from — the median note
+     * in the thesis is under it at every width a canvas hands out, and the
+     * outlier is over it at every one of them.
+     *
+     * Asserted at four sizes on purpose. `bodyLines` used to be null in a
+     * roomy container, which is exactly where the complaint was measured.
+     */
+    expect(roomFor(page).bodyLines).toBe(6)
+    expect(roomFor(middling).bodyLines).toBe(6)
+    expect(roomFor({ width: 220, height: 900 }).bodyLines).toBe(6)
+    expect(ROOMY.bodyLines).toBe(6)
+  })
+
+  test('a note gets as many lines as the frame holds, when the frame holds fewer', () => {
     /*
      * The owner: "when there's not enough space in notes — instead of trying to
      * squeeze as many notes visible at once, it should focus on showing one
@@ -87,23 +110,15 @@ describe('a small container shows less, never something else', () => {
      * that wanted twenty. The probe counts `whole` now — on screen AND not
      * truncated — and the old layout measured `fully: 3, whole: 0`.
      *
-     * The table below is the arithmetic, not the pixels: 20 for a line of
-     * `text-sm`, 39 for a row's badge line and padding, 40 for the heading
-     * above the scroller. All three were measured, and the row that comes out
-     * is one frameful — 259 pixels in a 264-pixel window at 220x300, which is
-     * also the condition `snappable` needs.
+     * The arithmetic is 20 for a line of `text-sm`, 39 for a row's badge line
+     * and padding and 40 for the heading above the scroller, all measured. The
+     * frame is the binding half only where it is tighter than `MOST`, which is
+     * the strip below and every smaller box; where it is not, the cap decides
+     * and the row is 159 pixels rather than a frameful.
      */
-    expect(roomFor({ width: 220, height: 300 }).bodyLines).toBe(11)
+    expect(linesInFrame(200)).toBe(6)
     expect(roomFor(strip).bodyLines).toBe(6)
-    expect(roomFor(middling).bodyLines).toBe(14)
-  })
-
-  test('a container with height to spare draws a whole note even when it is narrow', () => {
-    /* Narrow is still compact — the path, the author and the four buttons are
-       still dropped — but there is no reason to truncate anybody's words in a
-       900-pixel column, and the old rule clamped them to three lines there. */
-    expect(roomFor({ width: 220, height: 900 }).compact).toBe(true)
-    expect(roomFor({ width: 220, height: 900 }).bodyLines).toBe(41)
+    expect(roomFor({ width: 220, height: 160 }).bodyLines).toBe(4)
   })
 
   test('and the smallest box anybody can drag still gets a note rather than a line', () => {
@@ -119,7 +134,6 @@ describe('a small container shows less, never something else', () => {
        because nobody said how big the box was is the one failure mode that
        would be invisible in every test that did not look for it. */
     expect(ROOMY.compact).toBe(false)
-    expect(ROOMY.bodyLines).toBeNull()
     expect(ROOMY.compose).toBe('inline')
   })
 })

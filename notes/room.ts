@@ -24,6 +24,12 @@
  * Every field a compact row drops is behind the press that was already there —
  * pressing a note points the canvas at it, and now also opens it — so nothing
  * becomes unreachable and no control moves to a place a person has to learn.
+ *
+ * The same rule now covers a row that is too long rather than a container that
+ * is too small: `MOST` caps how many lines of anybody's words a row shows at
+ * ANY size, and the rest of them is behind that same press. A cap that cut a
+ * note off with no way to read the end of it would be this file failing its own
+ * rule in a new place.
  * A row that showed a different set of facts at 300 pixels than at 900 would be
  * two designs to keep honest; a row that shows a PREFIX of the same facts is
  * one.
@@ -67,13 +73,14 @@ export interface Room {
    */
   compact: boolean
   /**
-   * How many lines of the note's own words, or null for all of them.
+   * How many lines of the note's own words, before anybody presses it.
    *
-   * As many as the FRAME holds, rather than a number picked to fit three rows
-   * in. See `linesInFrame`, which is where the owner's "focus on showing one
-   * note fully" is actually decided.
+   * The smaller of two numbers: what the FRAME holds, and `MOST`, which is the
+   * length past which a row stops being a row. Never null and never "all of
+   * them" — see `MOST` for the cap the owner asked for and why the frame alone
+   * could not be it.
    */
-  bodyLines: number | null
+  bodyLines: number
   /** How many lines of the quoted passage, or null for all of them. */
   quoteLines: number | null
   /** The badges past the verdict and `resolved`: over MCP, in the source. */
@@ -230,11 +237,63 @@ const FEWEST = 2
  * the condition `snappable` asks for. One flick is one note. The rest of a note
  * too long for any window is where it always was, one press away, and that
  * press is the one already on the row.
+ *
+ * ## What this number is NOT allowed to decide any more
+ *
+ * It is now the smaller half of `bodyLines` rather than the whole of it. On its
+ * own it says a 900-pixel-tall column may spend forty-one lines on one note,
+ * which is one note filling a list — see `MOST`, which is the other half.
  */
 export function linesInFrame(height: number): number {
   const forTheBody = height - CROWN - ROW_CHROME
   return Math.max(FEWEST, Math.floor(forTheBody / LINE))
 }
+
+/**
+ * The most lines of one note's words any row shows before it is pressed.
+ *
+ * ## The complaint
+ *
+ * The owner, looking at one row that had ninety words on it: "Notes should
+ * perhaps have a word cap to keep things reasonably sized."
+ *
+ * A cap in WORDS was the obvious reading and it is the wrong unit. Ninety words
+ * is twenty lines in a 220-pixel column and four in a 900-pixel one, so a
+ * word count would cut a row that was already short and leave a page-long one
+ * alone; what a person is looking at is how much of the FRAME a note takes, and
+ * that is lines. It would also have been a second limit competing with the one
+ * this file already has, and two clamps whose disagreements only show up in a
+ * browser is how a row ends up truncated twice.
+ *
+ * So the cap is lines, it is the same `line-clamp` mechanism `linesInFrame`
+ * already drives, and it applies at EVERY size — including the tall roomy
+ * container, which is where `bodyLines` used to be `null` and where the row in
+ * the complaint was measured.
+ *
+ * ## Six, and where the number comes from
+ *
+ * Measured, against the twenty notes on one chapter of the thesis this module
+ * is used on. The body of the longest of them wants 20 lines at 220 wide, 12 at
+ * 320, 9 at 460, 6 at 700 and 4 at 900; the median note wants 7, 4, 3, 2 and 2.
+ *
+ * Six is therefore the number that leaves the ordinary note alone at every
+ * width a canvas hands out and clips the outlier at every one of them. Eight
+ * was tried on paper and fails the case the complaint came from: the ninety-word
+ * note is six lines at 900 wide, so a cap of eight would have changed nothing
+ * at the size the owner was looking at.
+ *
+ * It costs 159 pixels a row at 220x300 against a 264-pixel window, which is
+ * still one row to a screen and still under `snappable`'s condition — so the
+ * "one flick is one note" the essay above argues for survives the cap.
+ *
+ * ## Nothing is lost, and it is the press that was already there
+ *
+ * A capped row is a PREFIX of the full one, exactly as a compact row is, and
+ * the press that opens a compact row now opens any row. That is the rule at the
+ * top of this file — a small container shows LESS, never OTHER — extended to a
+ * long note, which is the same failure in the other axis.
+ */
+const MOST = 6
 
 /** Above this, snapping is a tug with nothing to gain. */
 const TALL_ENOUGH_TO_ROAM = 600
@@ -246,9 +305,11 @@ export function roomFor(frame: Frame): Room {
 
   return {
     compact,
-    /* As much of the note as the frame will hold, rather than a fixed two or
-       three lines. See `linesInFrame`. */
-    bodyLines: compact ? linesInFrame(frame.height) : null,
+    /* The smaller of the cap and what the frame will hold, and no longer a
+       function of `compact` at all: a note ninety words long is too long a row
+       in a tall wide container as well, which is where the complaint came
+       from. See `MOST` and `linesInFrame`. */
+    bodyLines: Math.min(MOST, linesInFrame(frame.height)),
     quoteLines: compact ? 2 : null,
     provenance: !compact,
     where: !compact,
@@ -268,6 +329,10 @@ export function roomFor(frame: Frame): Room {
  * A default rather than an optional field, so that a row rendered by a test or
  * by a caller that has not measured anything says everything it knows rather
  * than silently hiding half of it.
+ *
+ * Everything EXCEPT the body cap, which applies here too: `MOST` is not a
+ * concession to a small frame, it is what a row is, and a caller that measured
+ * nothing is the last caller that should be printing ninety words in one row.
  */
 export const ROOMY: Room = roomFor({ width: 10_000, height: 10_000 })
 

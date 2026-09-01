@@ -114,6 +114,64 @@
  */
 
 /**
+ * A line that is a horizontal rule rather than a sentence.
+ *
+ * ## Why this test is narrow, and what it costs when it is not
+ *
+ * The chapters of the thesis this was written against open with `%` rules sixty
+ * characters wide. Stripped of their `%` those are a run of equals signs: not
+ * empty, not an annotation, and not something anybody wrote about the paper —
+ * a line somebody drew in a text editor to separate one part of a file from
+ * another. On screen it is worse than noise, because sixty unbreakable
+ * characters are a min-content floor, and that is the measurement that once
+ * made a 220-pixel container 1187 pixels wide.
+ *
+ * Four or more of ONE punctuation character and nothing else. Anything looser
+ * starts eating prose: `---` is an em dash somebody typed and `##` is a heading
+ * in a comment written by somebody with Markdown in their fingers, and both are
+ * things the author said.
+ *
+ * ## Why it lives here rather than in `annotations.ts`, where it was written
+ *
+ * It was a private helper there, applied line by line on the way into a comment
+ * run, and that covered every note this app LIFTS. It does not cover the two
+ * strings this app draws that it can no longer re-read: the body of a note it
+ * has stopped lifting, and `Source.reread.was` — what a note used to say, which
+ * is frozen because the replies under it were written against those words. Both
+ * are pre-rule text, both are drawn, and one of them is drawn on a third of the
+ * notes in the thesis.
+ *
+ * One home rather than two: `annotations.ts` calls this on the way in, the row
+ * calls it on the way out, and there is no second spelling of "this is not a
+ * sentence" to keep in step with the first.
+ */
+function isRule(line: string): boolean {
+  return /^([=\-_*~#+.])\1{3,}$/.test(line.trim())
+}
+
+/**
+ * The same words with the divider lines taken out.
+ *
+ * Line by line, and the sentences between two rules are kept — a run that is a
+ * rule, four sentences and another rule is how every chapter of the thesis
+ * opens, so dropping the whole run would drop the note.
+ *
+ * Falls back to the text it was given when the rules were all there was. That
+ * is not a case `annotations.ts` can reach — it asks `saysSomething` before it
+ * keeps anything — but a stored body written under an older rule can be
+ * anything at all, and a row that renders an empty paragraph where a note used
+ * to be would be this pass deleting somebody's note on screen.
+ */
+export function withoutRules(text: string): string {
+  const kept = text
+    .split('\n')
+    .filter((line) => !isRule(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+  return kept.trim() ? kept : text
+}
+
+/**
  * Inline commands whose braced argument is the text and whose name is styling.
  *
  * Exactly the keys of Paper's `STYLE_CMDS`, copied rather than imported for the
