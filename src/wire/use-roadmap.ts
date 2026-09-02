@@ -111,6 +111,24 @@ export interface Roadmap {
    * own store for the same notes several times a second.
    */
   chosen: FilterChoice
+  /**
+   * Every container on the kehikko, whether it is picked out, and what
+   * documents it says it is showing, as the host last said — flattened to ONE
+   * STRING, for the reason the passage is compared field by field: a context
+   * arrives after every change anywhere on the canvas, and a fresh array of
+   * fresh rows each time would re-ask this app's store for the same notes
+   * several times a second. `notes/aim.ts` reads it; `App` inflates it once.
+   *
+   * `''` is no containers: nothing is framing this page, or a host too old to
+   * say. Both are answered the same way — the page follows the reader as it
+   * always did, and offers no control for a narrowing it cannot do.
+   *
+   * Read structurally rather than off `ModuleContext`, so that this page
+   * typechecks against a copy of the protocol from before the field existed
+   * and simply finds nothing there — which is also what the wire does: an
+   * older client strips the field before this page sees it.
+   */
+  containers: string
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
   /**
@@ -176,6 +194,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [passage, setPassage] = useState<Passage | null>(null)
   const [chosen, setChosen] = useState<FilterChoice>({})
+  const [containers, setContainers] = useState('')
   const host = useRef<Connection | null>(null)
 
   /**
@@ -222,6 +241,9 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
          is a record rebuilt by the host on every context, and a fresh identity
          here re-asks this app's store for the same list of notes. */
       setChosen((was) => (agrees(was, context.filters ?? {}) ? was : (context.filters ?? {})))
+      /* Flattened to a string on arrival, so the setter is a no-op when the
+         canvas did not move — see `containers` above. */
+      setContainers(flattenContainers((context as { containers?: unknown }).containers))
     }
 
     /**
@@ -280,9 +302,46 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
   }, [])
 
   return useMemo(
-    () => ({ where, project, projectPath, passage, chosen, resize, filters, point }),
-    [where, project, projectPath, passage, chosen, resize, filters, point],
+    () => ({ where, project, projectPath, passage, chosen, containers, resize, filters, point }),
+    [where, project, projectPath, passage, chosen, containers, resize, filters, point],
   )
+}
+
+/**
+ * The host's containers as one string, or `''`.
+ *
+ * Only what this page reads survives: the module, the flag, and each document
+ * as its path, page and range. Refs are dropped — a note is never filed
+ * against one — and so is the quote, for the reason `same` ignores nothing
+ * else: this page compares places, and the quote is what happened to be
+ * there.
+ */
+function flattenContainers(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return ''
+  const rows = value.flatMap((one) => {
+    if (typeof one !== 'object' || one === null) return []
+    const row = one as { module?: unknown; selected?: unknown; showing?: unknown }
+    if (typeof row.module !== 'string' || !row.module) return []
+    const showing = (typeof row.showing === 'object' && row.showing !== null ? row.showing : {}) as {
+      documents?: unknown
+    }
+    const documents = Array.isArray(showing.documents)
+      ? showing.documents.flatMap((d) => {
+          const doc = d as { path?: unknown; page?: unknown; from?: unknown; to?: unknown } | null
+          if (!doc || typeof doc.path !== 'string' || !doc.path) return []
+          return [
+            {
+              path: doc.path,
+              page: typeof doc.page === 'number' ? doc.page : null,
+              from: typeof doc.from === 'number' ? doc.from : null,
+              to: typeof doc.to === 'number' ? doc.to : null,
+            },
+          ]
+        })
+      : []
+    return [{ module: row.module, selected: row.selected === true, documents }]
+  })
+  return rows.length ? JSON.stringify(rows) : ''
 }
 
 /**
