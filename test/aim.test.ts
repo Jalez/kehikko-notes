@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { AIM, aimOf, aimOffer, briefOfPicked, inFrontOf, merged, whyEmpty, type Shown } from '../notes/aim.ts'
+import { AIM, aimOf, aimOffer, briefOfPicked, inFrontOf, merged, saidOfEmpty, whyEmpty, type Shown } from '../notes/aim.ts'
 
 /**
  * Which documents are in front of the reader once the kehikko can say what
@@ -94,7 +94,7 @@ describe('the control in the header', () => {
 })
 
 describe('several documents merged into one screen', () => {
-  const look = (path: string, shown: string[], elsewhere: number, verified = true) => ({
+  const look = (path: string, shown: string[], elsewhere: number, verified = true, opened: boolean | null = true) => ({
     said: `Every note on ${path}.`,
     scope: { kind: 'document' as const, path },
     shown,
@@ -102,6 +102,7 @@ describe('several documents merged into one screen', () => {
     elsewhere,
     withdrawn: [] as string[],
     verified,
+    opened,
     trouble: null as string | null,
   })
 
@@ -116,5 +117,43 @@ describe('several documents merged into one screen', () => {
 
   test('nothing to merge is null rather than an empty screen pretending to be a document', () => {
     expect(merged([])).toBeNull()
+  })
+
+  test('one document that could not be opened makes the merged list say so', () => {
+    expect(merged([look('/a.tex', [], 0, true, true), look('/b.tex', [], 0, false, false)])?.opened).toBe(false)
+    expect(merged([look('/a.tex', ['a1'], 0)])?.opened).toBe(true)
+    expect(merged([look('/a.tex', [], 0, false, null)])?.opened).toBeNull()
+  })
+})
+
+describe('an empty list says which of three empty states it is in', () => {
+  /*
+   * The three the brief names: nothing aimed at (that is `whyEmpty`, above);
+   * something aimed at that resolves, and holds no note; and something aimed
+   * at that does not resolve. The last two were one sentence, and a reader
+   * could not tell an empty chapter from a wrong address.
+   */
+  test('nothing aimed at: the picks show no document, and the sentence names them', () => {
+    const front = inFrontOf({ containers: [{ module: 'roadmap.paper', selected: true, documents: [] }], aim: 'follow' })
+    expect(whyEmpty(front)).toContain('paper is picked out and shows no document')
+  })
+
+  test('aimed at a document that opened and has no notes: nothing written here yet', () => {
+    expect(saidOfEmpty({ opened: true, adrift: false, file: 'main.tex' })).toBe('Nothing has been written here yet.')
+    expect(saidOfEmpty({ opened: null, adrift: false, file: null })).toBe('Nothing has been written here yet.')
+    expect(saidOfEmpty({ opened: true, adrift: true, file: 'main.tex' })).toBe('Nothing is anchored here.')
+  })
+
+  test('aimed at a document that could not be opened: says so, by name, and does not claim it is empty', () => {
+    const said = saidOfEmpty({ opened: false, adrift: false, file: 'gone.tex' })
+    expect(said).toContain('could not open gone.tex')
+    expect(said).not.toContain('Nothing has been written')
+  })
+
+  test('and the three are three different sentences', () => {
+    const nothing = whyEmpty(inFrontOf({ containers: [{ module: 'roadmap.paper', selected: true, documents: [] }], aim: 'follow' }))
+    const resolves = saidOfEmpty({ opened: true, adrift: false, file: 'main.tex' })
+    const unresolvable = saidOfEmpty({ opened: false, adrift: false, file: 'main.tex' })
+    expect(new Set([nothing, resolves, unresolvable]).size).toBe(3)
   })
 })

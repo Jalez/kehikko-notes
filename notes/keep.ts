@@ -9,6 +9,7 @@ import {
   MAX_QUOTE,
   MAX_REPLIES,
   fingerprint,
+  sourceOf,
   type Note,
   type Reply,
   type Store,
@@ -237,6 +238,40 @@ export type Op =
   | { op: 'resolve'; id: string; done: boolean; by: string; viaMcp?: boolean }
   | { op: 'reanchor'; id: string; from: number; to: number; quoted: string; by: string; viaMcp?: boolean }
   /**
+   * The words of a note, rewritten by the person who is looking at it.
+   *
+   * Only ever a note somebody TYPED. A note lifted out of the source has its
+   * words in the `.tex`, and a body rewritten here would be overwritten by
+   * the next read of that file — or, worse, would sit beside the annotation
+   * saying something the annotation does not, with nothing on the row able to
+   * say which is the record. The honest edit for those is in the document.
+   *
+   * Never offered at the MCP door. An agent changing what a person wrote is
+   * the reply door's reason for existing: a reply is attributed, an edit is
+   * not.
+   */
+  | { op: 'edit'; id: string; body: string; by: string }
+  /**
+   * The one irreversible act in this store, and the argument for it being here
+   * at all is narrower than it looks.
+   *
+   * `doors.ts` has said for the life of this module that there is no
+   * `forget_note`: deleting a note removes the reason a sentence was changed
+   * along with the note, and `resolve_note` is what "dealt with" means. That
+   * stands, and it is about an AGENT — "an agent that wants a note gone can say
+   * so and be told no by somebody". This is the somebody. A person at the page
+   * who typed a note into the wrong place a minute ago, or a note with a typo
+   * they would rather not resolve than keep, has a record that is theirs and
+   * nobody's conversation yet. It goes, with its replies, and the press that
+   * does it says so twice — see `Arm` in `src/view/arm.tsx`.
+   *
+   * Refused for a note lifted out of the source, and for the same reason
+   * `edit` is: the annotation is still in the `.tex`, the next read of the
+   * file would lift it again, and a delete that quietly comes back is worse
+   * than none. Those are resolved here or removed in the document.
+   */
+  | { op: 'remove'; id: string; by: string }
+  /**
    * One read of one file's annotations, applied whole.
    *
    * A whole file rather than one annotation, because the interesting half of
@@ -308,7 +343,9 @@ export function change(projectPath: string | null | undefined, op: Op): Outcome 
      type error, which is the check doing its job. */
   if (op.op === 'ingest') return ingest(projectPath, store, op, by)
 
-  const viaMcp = op.viaMcp === true
+  /* `edit` and `remove` have no door for an agent, so the field is not on
+     their variants; for every other op it says which door the press came by. */
+  const viaMcp = 'viaMcp' in op && op.viaMcp === true
 
   if (op.op === 'add') {
     const asked = str(op.path, MAX_PATH)
@@ -455,6 +492,42 @@ export function change(projectPath: string | null | undefined, op: Op): Outcome 
     const refused = write(projectPath, store)
     if (refused) return { ok: false, error: refused }
     return { ok: true, said: op.done ? `Resolved ${note.id}` : `Reopened ${note.id}`, id: note.id }
+  }
+
+  if (op.op === 'edit' || op.op === 'remove') {
+    const source = sourceOf(note)
+    if (source) {
+      const what = op.op === 'edit' ? 'rewritten' : 'removed'
+      return {
+        ok: false,
+        error:
+          `Note ${note.id} was lifted out of the document itself, so it cannot be ${what} here: its words are in `
+          + `${note.path}, and the next read of that file would ${op.op === 'edit' ? 'put them back' : 'lift it again'}. `
+          + `${op.op === 'edit' ? 'Edit the annotation in the document' : 'Resolve it, or take the annotation out of the document'}. Nothing was changed.`,
+      }
+    }
+  }
+
+  if (op.op === 'edit') {
+    const body = str(op.body, MAX_BODY)
+    if (!body) return { ok: false, error: 'A note has to say something. Nothing was written, so nothing was changed.' }
+    if (body === note.body) return { ok: false, error: `Note ${note.id} already says that. Nothing was changed.` }
+    note.body = body
+    const refused = write(projectPath, store)
+    if (refused) return { ok: false, error: refused }
+    return { ok: true, said: `Rewrote ${note.id}`, id: note.id }
+  }
+
+  if (op.op === 'remove') {
+    const replies = note.replies.length
+    store.notes = store.notes.filter((one) => one.id !== note.id)
+    const refused = write(projectPath, store)
+    if (refused) return { ok: false, error: refused }
+    return {
+      ok: true,
+      said: `Removed ${note.id}${replies ? ` and the ${replies === 1 ? 'reply' : `${replies} replies`} on it` : ''}, for good`,
+      id: note.id,
+    }
   }
 
   /* Re-anchoring: the one write that changes what a note is ABOUT. */

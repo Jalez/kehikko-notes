@@ -2,7 +2,7 @@ import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ID } from '../manifest.ts'
-import { aimOf, aimOffer, briefOfPicked, inFrontOf, merged, whyEmpty, type Shown } from '../notes/aim.ts'
+import { aimOf, aimOffer, briefOfPicked, inFrontOf, merged, saidOfEmpty, whyEmpty, type Shown } from '../notes/aim.ts'
 import { keyOf, shownAt as heldAt, standing, type Pointed } from '../notes/pointed.ts'
 import { briefOf, fileOf, scopeOf, type Scope } from '../notes/scope.ts'
 import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
@@ -429,6 +429,11 @@ export function App() {
     () => ({
       reply: (id, body) => void write({ op: 'reply', id, body }),
       resolve: (id, done) => void write({ op: 'resolve', id, done }),
+      /* Both refused by the door for a note lifted out of the source, and
+         neither is drawn for one — see `NoteRow`. The door is the rule; the
+         row is the courtesy. */
+      edit: (id, body) => void write({ op: 'edit', id, body }),
+      remove: (id) => void write({ op: 'remove', id }),
       /*
        * Re-anchoring takes the offsets this app FOUND and the note's own words.
        *
@@ -457,18 +462,33 @@ export function App() {
        * causing it in another module.
        *
        * So `moved` points at where the words actually are, `exact` at where they
-       * always were, and `adrift` — where this app could not find them at all —
-       * points at the DOCUMENT with no range, which is the honest amount of
-       * precision left. `unranged` and `unverified` fall out of the same
+       * always were, and `unranged` and `unverified` fall out of the same
        * expression for the same reason: the anchor is what this app is willing
        * to claim, and it is the only thing sent.
        *
        * The quote goes with it, always, because a consumer comparing the words
        * against the file can see a rotten range for itself — which is the
        * protocol's own argument for the field.
+       *
+       * ## And `adrift` is not sent at all
+       *
+       * It used to be: "points at the DOCUMENT with no range, which is the
+       * honest amount of precision left". It was not honest, because the quote
+       * went with it — the note's own words, which this app had just checked
+       * against the file and found absent. A passage is a claim about a
+       * document; this one carried a quote its sender knew to be false, to
+       * every consumer that reads quotes precisely to catch that. What it did
+       * on the canvas was worse than nothing: the paper had nothing to walk
+       * to, and every pane narrowed to the picked-out paper emptied, because
+       * the host had moved the passage into this container's row and the
+       * paper's row went blank (fixed in the host, `host/showing.ts`; but the
+       * press was wrong on its own terms before the host made it visible).
+       * The row refuses first — `canPoint` in `NoteRow` — and this refuses
+       * again, so a future row cannot re-open the door by mistake.
        */
       point: where === 'hosted'
         ? (one: Anchored) => {
+            if (one.anchor.state === 'adrift') return
             const at = {
               path: one.note.path,
               page: one.note.page,
@@ -842,10 +862,20 @@ export function App() {
               ))}
             </ul>
           ) : (
-            <p data-testid="empty" className="min-w-0 text-xs text-muted-foreground">
-              {looked?.adrift.length
-                ? 'Nothing is anchored here.'
-                : 'Nothing has been written here yet.'}
+            <p
+              data-testid="empty"
+              data-opened={looked?.opened === false ? 'no' : undefined}
+              className={'min-w-0 text-xs ' + (looked?.opened === false ? 'text-adrift' : 'text-muted-foreground')}
+            >
+              {/* Three empty states, three sentences: nothing aimed at is
+                  `whyEmpty` above; this is the other two, and which one it is
+                  depends on whether the document could be opened at all. See
+                  `saidOfEmpty`. */}
+              {saidOfEmpty({
+                opened: looked?.opened ?? null,
+                adrift: Boolean(looked?.adrift.length),
+                file: front.narrowed ? (front.documents[0] ? fileOf(front.documents[0].path) : null) : shownAt ? fileOf(shownAt.path) : null,
+              })}
             </p>
           )}
 

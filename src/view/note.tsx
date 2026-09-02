@@ -1,6 +1,8 @@
+import { Check, Pencil, Trash2, Undo2 } from 'lucide-react'
 import { useState, type CSSProperties } from 'react'
 
 import type { Anchored } from '@/store/ask.ts'
+import { Arm } from '@/view/arm.tsx'
 import { sourceOf } from '../../notes/shape.ts'
 import { Badge } from '@/components/ui/badge.tsx'
 import { fileOf } from '../../notes/scope.ts'
@@ -144,6 +146,10 @@ export interface NoteActions {
    * is not drawn.
    */
   point: ((one: Anchored) => void) | null
+  /** Rewrite the words. Typed notes only; a derived note's words are in the `.tex`. */
+  edit: (id: string, body: string) => void
+  /** Gone for good, replies and all. Typed notes only, and only ever from behind `Arm`. */
+  remove: (id: string) => void
   busy: boolean
 }
 
@@ -187,6 +193,14 @@ export function NoteRow({
    * Folding the two together would put the noise back on every opened row.
    */
   const [saidBefore, setSaidBefore] = useState(false)
+  /**
+   * Whether the words are being rewritten, and what they say so far.
+   *
+   * `null` when they are not. Kept per row like `replying`, and for the same
+   * reason: a person fixing a typo in one note has not asked to lose the
+   * reply they were halfway through on another.
+   */
+  const [rewriting, setRewriting] = useState<string | null>(null)
   /**
    * What a row is holding back, and it is never nothing.
    *
@@ -245,10 +259,38 @@ export function NoteRow({
    * row whose last sentence nobody can read. `closest` below is what keeps the
    * buttons inside the row meaning what they say.
    */
+  /*
+   * Except for an ADRIFT note, which opens and points at nothing.
+   *
+   * The passage such a note was written about is not in the document — that is
+   * what adrift MEANS, and this row says so in a badge. Pointing the canvas at
+   * it anyway sent the document with no range and the note's own words as the
+   * quote: words this module had just checked and knows are not there. Every
+   * consumer of the passage reads the quote precisely to tell a live highlight
+   * from a rotten one, so that was this module asserting, to the whole canvas,
+   * the one thing it had established to be false. The paper could do nothing
+   * with it, and what the reader saw was two panes going quiet.
+   *
+   * So an adrift note is the one row a press does not point from. What a
+   * person pressing it wants is the note — its words, who wrote it, when — and
+   * opening the row is exactly that. `canPoint` is the same test the action
+   * row uses, so the row and its button cannot disagree.
+   */
+  const canPoint = anchor.state !== 'adrift'
   const press = () => {
     setOpen((was) => !was)
-    actions.point?.(one)
+    if (canPoint) actions.point?.(one)
   }
+  /*
+   * What a person may do to this note besides read it.
+   *
+   * A note lifted out of the source has its words in the `.tex`, so rewriting
+   * or removing it HERE would be undone by the next read of that file — the
+   * door refuses both, and a control that is refused every time is worse than
+   * one not drawn. Those rows get the one press that is honest for them:
+   * resolve, which is what "dealt with" means in this module.
+   */
+  const typed = !source
   return (
     <li
       data-testid="note"
@@ -296,7 +338,7 @@ export function NoteRow({
          it is the cheap half of the same promise for whoever has a pointer. */
       title={holdingBack ? `${note.path}\n${where}\n${note.by}` : undefined}
       className={
-        'min-w-0 border-b border-border/60 last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+        'group min-w-0 border-b border-border/60 last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
         /* Four pixels a row, and they decide whether a 200-pixel container holds
            two notes or one: measured at 83 pixels a row against 164 pixels of
            window, which is one row and a half. */
@@ -333,6 +375,85 @@ export function NoteRow({
             {source.withdrawn ? 'not an annotation' : source.present ? 'in the source' : 'gone from source'}
           </Badge>
         ) : null}
+
+        {/*
+         * The presses on a note, as icons, revealed on hover.
+         *
+         * ## This list hides them and the history module's does not, on purpose
+         *
+         * `kehikko-history/src/view/commits.tsx` keeps its three icons always
+         * visible and argues it: "a control that is invisible until pointed at
+         * is invisible to somebody who has not learned it exists, and this list
+         * is the ONLY place the module offers to open a commit". That argument
+         * is right and it is about a list where the icons are the only way to
+         * do anything. This list is different in the one way that matters: a
+         * row already opens on a press, and the opened row draws its action
+         * row in words — reply, resolve, re-anchor, show in the paper. Nothing
+         * these icons do is reachable ONLY through them; the person who has
+         * not learned they exist loses a shortcut and not a capability. The
+         * owner asked for hover, and the cost of hover here is a cost this row
+         * can bear.
+         *
+         * Revealed on hover AND on focus-within AND on an opened row, and
+         * nothing here is `display: none`: the buttons are laid out at all
+         * times and only faded, so a keyboard reaches them by Tab in the
+         * order they sit in the row, and the row lights the group the moment
+         * one of them has focus. A group that appeared only on hover would be
+         * unreachable without a pointer, which is the same failure the essay
+         * above `role="button"` names. An opened row shows them outright,
+         * which is also what a touch screen — where nothing hovers — gets.
+         *
+         * These rows sit in a `<ul>`, not a menu, so there are no arrow keys
+         * to wire and none are: Tab and Shift-Tab walk the controls, Enter and
+         * Space press them, and the row's own `closest` check keeps a press on
+         * a button from also toggling the row.
+         */}
+        <span
+          data-testid="note-controls"
+          className={
+            'ml-auto inline-flex items-start gap-0.5 transition-opacity'
+            + (open ? '' : ' opacity-0 group-hover:opacity-100 group-focus-within:opacity-100')
+          }
+        >
+          {typed ? (
+            <Button
+              size="containerIcon"
+              variant="ghost"
+              aria-label="edit this note"
+              title="edit this note"
+              disabled={actions.busy}
+              onClick={() => {
+                setOpen(true)
+                setRewriting((was) => (was === null ? note.body : null))
+              }}
+            >
+              <Pencil aria-hidden className="size-3.5" />
+            </Button>
+          ) : null}
+          <Button
+            size="containerIcon"
+            variant="ghost"
+            aria-label={note.resolved ? 'reopen this note' : 'resolve this note'}
+            title={note.resolved ? 'reopen this note' : 'resolve this note'}
+            disabled={actions.busy}
+            onClick={() => actions.resolve(note.id, !note.resolved)}
+          >
+            {note.resolved ? <Undo2 aria-hidden className="size-3.5" /> : <Check aria-hidden className="size-3.5" />}
+          </Button>
+          {typed ? (
+            <Arm
+              label="remove this note"
+              icon={<Trash2 aria-hidden className="size-3.5" />}
+              armed="remove for good"
+              warning={
+                `Removes this note${note.replies.length ? ` and the ${note.replies.length === 1 ? 'reply' : `${note.replies.length} replies`} on it` : ''} `
+                + 'for good. Nothing in this module brings a removed note back; resolving keeps it.'
+              }
+              disabled={actions.busy}
+              onFire={() => actions.remove(note.id)}
+            />
+          ) : null}
+        </span>
       </div>
 
       {/* The path and the range: somebody else's string, so it wraps rather than
@@ -389,13 +510,42 @@ export function NoteRow({
           has STOPPED lifting are frozen records that will never be read again,
           and they are drawn — behind the host's `preamble comments` filter —
           with sixty equals signs on the first line. */}
-      <p
-        data-testid="body"
-        style={clamped(room.bodyLines, open)}
-        className="mt-1.5 min-w-0 text-sm"
-      >
-        {withoutRules(note.body)}
-      </p>
+      {rewriting !== null ? (
+        <form
+          data-testid="rewrite"
+          className="mt-1.5 min-w-0"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const body = rewriting.trim()
+            if (!body || body === note.body) return
+            actions.edit(note.id, body)
+            setRewriting(null)
+          }}
+        >
+          <textarea
+            aria-label={`Rewrite ${note.id}`}
+            className="min-h-14 w-full min-w-0 rounded border bg-background p-1.5 text-sm"
+            value={rewriting}
+            onChange={(event) => setRewriting(event.target.value)}
+          />
+          <div className="mt-1 flex flex-wrap gap-1">
+            <Button size="container" type="submit" disabled={actions.busy || !rewriting.trim() || rewriting.trim() === note.body}>
+              save
+            </Button>
+            <Button size="container" variant="ghost" type="button" onClick={() => setRewriting(null)}>
+              cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <p
+          data-testid="body"
+          style={clamped(room.bodyLines, open)}
+          className="mt-1.5 min-w-0 text-sm"
+        >
+          {withoutRules(note.body)}
+        </p>
+      )}
 
       {/*
         What this app used to make of the same annotation, when its own reading
@@ -459,13 +609,21 @@ export function NoteRow({
         </p>
       ) : null}
 
-      {/* Who wrote it. Every note in a list is usually by the same person, and
-          in a compact row that is a line of the frame spent saying so twenty
-          times. `resolved` is a badge at the top whatever the size, so the fact
-          survives even where the name does not. */}
+      {/* Who wrote it, and when. Every note in a list is usually by the same
+          person, and in a compact row that is a line of the frame spent saying
+          so twenty times. `resolved` is a badge at the top whatever the size,
+          so the fact survives even where the name does not.
+
+          The date was never drawn, on any row, at any size — and it is one of
+          the three things a person deciding what to do about an ADRIFT note
+          has to go on: the words, who wrote them, and when. A note whose
+          passage is gone and whose date is unknown cannot be told from one
+          written yesterday against a paragraph deleted this morning. The day
+          is enough; the row's `title` carries nothing more precise because
+          nothing here needs it. */}
       {open || room.author ? (
-        <p className="mt-1 min-w-0 text-[0.65rem] text-muted-foreground">
-          {note.by}
+        <p data-testid="byline" className="mt-1 min-w-0 text-[0.65rem] text-muted-foreground">
+          {note.by} · {note.at.slice(0, 10)}
           {note.resolved && note.resolvedBy ? ` · resolved by ${note.resolvedBy}` : ''}
         </p>
       ) : null}
@@ -534,12 +692,19 @@ export function NoteRow({
            * The same press as the row, reachable from a keyboard.
            *
            * Its words change with the verdict because what it can honestly do
-           * changes with the verdict: an adrift note has no range left to point
-           * at, so the paper is pointed at the DOCUMENT and the button says the
-           * smaller thing rather than promising a highlight that would land on
-           * whatever text now sits at offsets nobody has verified.
+           * changes with the verdict: a note about a whole page, or one this
+           * app could not check, has no range to highlight, so the paper is
+           * pointed at the DOCUMENT and the button says the smaller thing
+           * rather than promising a highlight that would land on whatever text
+           * now sits at offsets nobody has verified.
+           *
+           * An adrift note gets no button at all — see `canPoint`. It used to
+           * get "open in the paper", which pointed the canvas at a document
+           * with a quote this module knew was not in it. The anchor's own
+           * sentence, above, already says the passage is gone; a press that
+           * could only echo that in another pane is not a press worth drawing.
            */}
-          {actions.point ? (
+          {actions.point && canPoint ? (
             /* The point alone, and not `press`: this button is inside a row that
                is already open, so the toggle in `press` would close the row a
                person is reading in order to show them the paper. */

@@ -234,6 +234,19 @@ export interface Looked {
   trouble: string | null
   /** Whether this app was able to open any document at all. See `notes/source.ts`. */
   verified: boolean
+  /**
+   * Whether the document the scope names could be opened, or null when the
+   * scope names none.
+   *
+   * `verified` cannot answer this: it is "some anchor resolved", which is false
+   * for a perfectly readable document that has no notes on it yet. That left
+   * two different answers drawn with one sentence — "Nothing has been written
+   * here yet" over a chapter that exists and is empty, and the same words over
+   * a path this app could not open at all, which is what a picked-out
+   * container pointing at a file that is not there looks like. The page reads
+   * this to tell them apart; see `saidOfEmpty` in `notes/aim.ts`.
+   */
+  opened: boolean | null
 }
 
 /**
@@ -277,7 +290,10 @@ export function look(asked: Asked, includeResolved: boolean): Looked {
   const wanted = includeResolved ? notes : notes.filter((one) => !one.resolved)
   const anchored = resolveAll(wanted, read)
   const verified = anchored.some((one) => one.anchor.state === 'exact' || one.anchor.state === 'moved' || one.anchor.state === 'adrift')
-  return { narrowed: narrow(anchored, asked.scope), said: saidOf(asked.scope), trouble, verified }
+  /* Read once more rather than remembered from the anchors: a document with no
+     notes on it was never opened above, and the question is about the document. */
+  const opened = path === null ? null : read(path) !== null
+  return { narrowed: narrow(anchored, asked.scope), said: saidOf(asked.scope), trouble, verified, opened }
 }
 
 /* ------------------------------------------------------------------ *
@@ -297,6 +313,13 @@ export function look(asked: Asked, includeResolved: boolean): Looked {
  * could offer. `resolve_note` is what "this is dealt with" means, it is
  * reversible, and it keeps the record. An agent that wants a note gone can say
  * so and be told no by somebody.
+ *
+ * That somebody has the page, and the page's own door now takes `remove` and
+ * `edit` — for a note a PERSON typed, never for one lifted out of the source,
+ * and behind a press that has to be made twice. The argument for keeping them
+ * off this door is unchanged by their existing there: a reply is attributed
+ * and an edit is not, and a removal is a person's own to make about their own
+ * record. See the two ops in `notes/keep.ts`.
  *
  * There is no tool that returns the contents of a document either, and that is
  * a boundary rather than an omission — see `notes/source.ts`. This app opens a
@@ -772,6 +795,7 @@ export function answer(
       elsewhere: looked.narrowed.elsewhere,
       withdrawn: looked.narrowed.withdrawn,
       verified: looked.verified,
+      opened: looked.opened,
       trouble: looked.trouble,
     })
   }
@@ -818,6 +842,11 @@ export function answer(
       if (!id) return bad('that change did not say which note it was about.')
       if (op === 'reply') return ok(change(projectPath, { op: 'reply', id, body: str(body.body, MAX_BODY), by }))
       if (op === 'resolve') return ok(change(projectPath, { op: 'resolve', id, done: body.done !== false, by }))
+      /* The two writes only this door offers. The MCP door has neither, on
+         purpose — see the essay above the tools, and the two ops in
+         `notes/keep.ts` for what a person may do here that an agent may not. */
+      if (op === 'edit') return ok(change(projectPath, { op: 'edit', id, body: str(body.body, MAX_BODY), by }))
+      if (op === 'remove') return ok(change(projectPath, { op: 'remove', id, by }))
       if (op === 'reanchor') {
         const from = count(body.from)
         const to = count(body.to)
@@ -829,7 +858,7 @@ export function answer(
       /* Named rather than shrugged at, because the page and this store are one
          program: an op this door does not know is this app's own bug and the
          next person to read a log is the one who has to find it. */
-      return bad(`there is no "${op}" to do to a note — it is add, reply, resolve or reanchor.`)
+      return bad(`there is no "${op}" to do to a note — it is add, reply, resolve, reanchor, edit or remove.`)
     }
   }
 

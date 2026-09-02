@@ -105,6 +105,8 @@ export interface Looked {
   withdrawn: Anchored[]
   /** Whether this app was able to open any of these documents to check an anchor. */
   verified: boolean
+  /** Whether the document asked about could be opened at all; null when none was named. See `doors.ts`. */
+  opened: boolean | null
   trouble: string | null
 }
 
@@ -149,6 +151,7 @@ export async function look(ask: Ask): Promise<Looked | { error: string }> {
       elsewhere: typeof body.elsewhere === 'number' ? body.elsewhere : 0,
       withdrawn: Array.isArray(body.withdrawn) ? body.withdrawn : [],
       verified: body.verified === true,
+      opened: typeof body.opened === 'boolean' ? body.opened : null,
       trouble: typeof body.trouble === 'string' ? body.trouble : null,
     }
   }
@@ -182,6 +185,10 @@ export type Change =
   | { op: 'reply'; id: string; body: string }
   | { op: 'resolve'; id: string; done: boolean }
   | { op: 'reanchor'; id: string; from: number; to: number; quoted: string }
+  /** The words rewritten by the person looking at them. Typed notes only; the door says why. */
+  | { op: 'edit'; id: string; body: string }
+  /** Gone for good, replies and all. Typed notes only, and behind two presses — see `Arm`. */
+  | { op: 'remove'; id: string }
 
 /**
  * A change, and the project it is against.

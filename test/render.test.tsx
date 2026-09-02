@@ -20,7 +20,7 @@ import { NoProject, Nowhere } from '../src/view/screens.tsx'
 
 afterEach(cleanup)
 
-const actions = { reply: () => {}, resolve: () => {}, reanchor: () => {}, point: null, busy: false }
+const actions = { reply: () => {}, resolve: () => {}, reanchor: () => {}, point: null, edit: () => {}, remove: () => {}, busy: false }
 
 function note(over: Partial<Note> = {}): Note {
   return {
@@ -368,6 +368,152 @@ describe('the screens that are not a list of notes name why they are there', () 
     expect(document.body.textContent).toContain('Nothing is framing this page')
     expect(document.body.textContent).toContain('nowhere to write')
     expect(screen.queryByRole('button')).toBeNull()
+  })
+})
+
+describe('an adrift note is a note a person can still read, and a press that points at nothing', () => {
+  /*
+   * "the adrift note itself cant be displayed." A note whose passage is gone
+   * has its words, its author and its date, and those three are what a person
+   * needs to decide what to do about it. The date had never been drawn on any
+   * row; the press pointed the canvas at a quote this app had just found
+   * absent, and the panes narrowed to the picked-out paper emptied.
+   */
+  const pointed: string[] = []
+  const points = { ...actions, point: (one: Anchored) => void pointed.push(one.note.id) }
+  const adriftNote = () => anchored('adrift', { at: '2026-08-30T14:13:12.914Z', by: 'the author, in the source' })
+
+  test('its words, its author and its date are on the row once it is opened', () => {
+    render(<NoteRow one={adriftNote()} actions={points} room={roomFor({ width: 220, height: 340 })} />)
+    expect(screen.getByText('is this still true after the rewrite?')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: /is this still true/ }))
+    expect(screen.getByTestId('byline').textContent).toContain('the author, in the source')
+    expect(screen.getByTestId('byline').textContent).toContain('2026-08-30')
+  })
+
+  test('pressing it opens the row and does NOT point the canvas', () => {
+    pointed.length = 0
+    render(<NoteRow one={adriftNote()} actions={points} />)
+    const row = screen.getByRole('button', { name: /is this still true/ })
+    fireEvent.click(row)
+    expect(row.getAttribute('data-open')).toBe('1')
+    expect(pointed).toEqual([])
+    expect(screen.queryByText('open in the paper')).toBeNull()
+    expect(screen.queryByText('show in the paper')).toBeNull()
+  })
+
+  test('while a note that resolves still points, at the anchor it resolved to', () => {
+    pointed.length = 0
+    render(<NoteRow one={anchored('moved')} actions={points} />)
+    fireEvent.click(screen.getByRole('button', { name: /is this still true/ }))
+    expect(pointed).toEqual(['n1'])
+    expect(screen.getByText('show in the paper')).toBeDefined()
+  })
+
+  test('the date is drawn on every row that draws its author, not only adrift ones', () => {
+    render(<NoteRow one={anchored('exact')} actions={actions} />)
+    expect(screen.getByTestId('byline').textContent).toBe('the owner · 2026-01-01')
+  })
+})
+
+describe('the controls on a row: edit, resolve, remove', () => {
+  /*
+   * "I'd like to see an icon button in a button group shown for all notes when
+   * you hover on them in the notes list." Every row has the group; what is IN
+   * it depends on what may honestly be done to that note.
+   */
+  test('a typed note offers all three, by name, so a keyboard and a reader can find them', () => {
+    render(<NoteRow one={anchored('exact')} actions={actions} />)
+    const group = screen.getByTestId('note-controls')
+    expect(group).toBeDefined()
+    expect(screen.getByRole('button', { name: 'edit this note' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'resolve this note' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'remove this note' })).toBeDefined()
+  })
+
+  test('a note lifted out of the source offers resolve alone: its words are in the .tex', () => {
+    render(
+      <NoteRow
+        one={anchored('exact', {
+          by: 'the author, in the source',
+          source: { key: '/x#todo:1', kind: 'todo', present: true, seenAt: '2026-01-01T00:00:00.000Z', goneAt: null },
+        })}
+        actions={actions}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'edit this note' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'remove this note' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'resolve this note' })).toBeDefined()
+  })
+
+  test('the group is faded until hover or focus, and never removed from the tab order', () => {
+    /* `opacity-0` and not `hidden`: a control that is not laid out cannot be
+       tabbed to, and a hover-only group would be unreachable without a
+       pointer. The class list is asserted because it is the mechanism. */
+    render(<NoteRow one={anchored('exact')} actions={actions} />)
+    const group = screen.getByTestId('note-controls')
+    expect(group.className).toContain('opacity-0')
+    expect(group.className).toContain('group-hover:opacity-100')
+    expect(group.className).toContain('group-focus-within:opacity-100')
+    const edit = screen.getByRole('button', { name: 'edit this note' })
+    expect(edit.getAttribute('tabindex')).not.toBe('-1')
+    expect((edit as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  test('and is shown outright on an opened row, which is what a touch screen gets', () => {
+    render(<NoteRow one={anchored('exact')} actions={actions} />)
+    fireEvent.click(screen.getByRole('button', { name: /is this still true/ }))
+    expect(screen.getByTestId('note-controls').className).not.toContain('opacity-0')
+  })
+
+  test('a press on a control does not also toggle the row', () => {
+    render(<NoteRow one={anchored('exact')} actions={actions} />)
+    fireEvent.click(screen.getByRole('button', { name: 'resolve this note' }))
+    expect(screen.getByRole('button', { name: /is this still true/ }).getAttribute('data-open')).toBe('0')
+  })
+
+  test('edit opens the words in a field, and saving writes the new words', () => {
+    const edits: [string, string][] = []
+    render(<NoteRow one={anchored('exact')} actions={{ ...actions, edit: (id, body) => void edits.push([id, body]) }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'edit this note' }))
+    const field = screen.getByLabelText('Rewrite n1') as HTMLTextAreaElement
+    expect(field.value).toBe('is this still true after the rewrite?')
+    fireEvent.change(field, { target: { value: 'it is still true' } })
+    fireEvent.click(screen.getByText('save'))
+    expect(edits).toEqual([['n1', 'it is still true']])
+    expect(screen.queryByTestId('rewrite')).toBeNull()
+  })
+
+  test('resolve resolves, and on a resolved note the same press reopens', () => {
+    const calls: [string, boolean][] = []
+    const resolve = (id: string, done: boolean) => void calls.push([id, done])
+    render(<NoteRow one={anchored('exact')} actions={{ ...actions, resolve }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'resolve this note' }))
+    cleanup()
+    render(<NoteRow one={anchored('exact', { resolved: true, resolvedBy: 'the owner' })} actions={{ ...actions, resolve }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'reopen this note' }))
+    expect(calls).toEqual([['n1', true], ['n1', false]])
+  })
+
+  test('remove takes two presses, and the second names what it will do', () => {
+    /* `confirm()` returns false silently in the host's sandbox, so a guard
+       has to be on screen. The first press arms; the button then says the
+       act in words and a sentence under it says the cost, replies included. */
+    const removed: string[] = []
+    render(
+      <NoteRow
+        one={anchored('exact', { replies: [{ id: 'r1', body: 'yes', by: 'x', viaMcp: false, at: '2026-01-02T00:00:00.000Z' }] })}
+        actions={{ ...actions, remove: (id) => void removed.push(id) }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'remove this note' }))
+    expect(removed).toEqual([])
+    const armed = screen.getByText('remove for good')
+    expect(armed.getAttribute('data-armed')).toBe('1')
+    expect(screen.getByRole('alert').textContent).toContain('the reply on it')
+    expect(screen.getByRole('alert').textContent).toContain('for good')
+    fireEvent.click(armed)
+    expect(removed).toEqual(['n1'])
   })
 })
 
