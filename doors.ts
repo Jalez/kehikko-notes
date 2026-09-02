@@ -5,6 +5,7 @@ import { FILE } from './store.ts'
 import { resolveAll, type Anchored } from './notes/anchor.ts'
 import { change, count, howMany, notesOf, str, type Op } from './notes/keep.ts'
 import { narrow, pathOf, saidOf, scopeOf, type Narrowed, type Scope } from './notes/scope.ts'
+import { live } from './notes/where.ts'
 import { MAX_BODY, MAX_BY, MAX_ID, MAX_PATH, MAX_QUOTE, sourceOf } from './notes/shape.ts'
 import { forgetReads, ingestSource } from './notes/ingest.ts'
 import { readerFor } from './notes/source.ts'
@@ -177,7 +178,19 @@ function asked(args: Record<string, unknown>): Asked | string {
   const projectPath = str(args.projectPath, MAX_PATH)
   if (!projectPath) return NO_PROJECT
   const everything = args.everything === true || args.everything === 'true'
-  const path = str(args.path, MAX_PATH)
+  /*
+   * The document, in the project's own spelling.
+   *
+   * Absolute paths arrive here and are answered exactly as before; this only
+   * settles WHICH absolute path, when the same file can be named two ways —
+   * `/tmp/thesis/main.tex` and `/private/tmp/thesis/main.tex` on this machine.
+   * A note's path is stored relative to the project and comes back joined onto
+   * the root the host named, so a scope that arrived by the other spelling
+   * would narrow to nothing and quietly say there were no notes on a document
+   * covered in them. One spelling on both sides of the comparison, decided in
+   * the one place both the page's read and every tool call pass through.
+   */
+  const path = live(projectPath, str(args.path, MAX_PATH))
 
   if (everything || !path) {
     if (!everything) {
@@ -552,7 +565,7 @@ function call(name: string, args: Record<string, unknown>): string {
   if (name === 'read_source_notes') {
     const projectPath = str(args.projectPath, MAX_PATH)
     if (!projectPath) throw new Error(NO_PROJECT)
-    const path = str(args.path, MAX_PATH)
+    const path = live(projectPath, str(args.path, MAX_PATH))
     if (!path) throw new Error('read_source_notes needs the absolute path of the document to read.')
     /* `force`, because a tool call means "again, now". The guard that skips an
        unchanged file is there so that a person scrolling does not cause work;

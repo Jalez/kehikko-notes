@@ -1,6 +1,7 @@
 import { readAnnotations } from './annotations.ts'
 import { change } from './keep.ts'
 import { fingerprint } from './shape.ts'
+import { rootsOf, stored } from './where.ts'
 
 /**
  * Reading the author's annotations out of a document, and where that happens.
@@ -101,8 +102,28 @@ export function ingestSource(
      silently renumber the notes in the body of a document. */
   const all = [...kept, ...withdrawn].sort((a, b) => a.from - b.from)
   const at = new Map(all.map((one, index) => [one, index]))
+  /*
+   * The file, named the way the store names it — relative to the project.
+   *
+   * The key is an identity that has to survive the document being edited, which
+   * is the whole argument for hashing the words rather than the offset. It has
+   * to survive the PROJECT MOVING for the same reason, and with an absolute
+   * path baked into it, it did not: move the folder and every key changes, so
+   * every annotation looks new. The store this was written against shows the
+   * damage already — its keys still name `thesis_latex/main.tex` while its notes
+   * point at `.kehikot/paper/thesis/main.tex`, because a hand migration rewrote
+   * the paths and could not rewrite the keys.
+   *
+   * Nothing forks when a key changes under an existing store: `adopt()` in
+   * `notes/keep.ts` recognises an annotation by its construct and its exact
+   * source slice, and rewrites the key onto the note that is already there. So
+   * the keys in a store written before this change are corrected once, quietly,
+   * on the next read of each document — which is the same shape of migration as
+   * the paths themselves.
+   */
+  const named = stored(rootsOf(where.projectPath), where.path)
   const keyed = (one: (typeof all)[number]) => ({
-    key: keyFor(where.path, one.kind, one.text, ordinal(all, at.get(one) ?? 0)),
+    key: keyFor(named, one.kind, one.text, ordinal(all, at.get(one) ?? 0)),
     kind: one.kind,
     body: one.text,
     from: one.from,

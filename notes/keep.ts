@@ -1,6 +1,7 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 
 import { dataFile, makeDir } from '../store.ts'
+import { climbs, resolved, rootsOf, stored } from './where.ts'
 import {
   MAX_BODY,
   MAX_BY,
@@ -94,7 +95,28 @@ export function read(projectPath: string | null | undefined): Read {
   try {
     const parsed = JSON.parse(raw) as Partial<Store>
     if (!parsed || !Array.isArray(parsed.notes)) throw new Error('no notes array')
-    return { store: { version: 1, notes: parsed.notes as Note[] }, trouble: null, nowhere: false }
+    /*
+     * The migration, and it is here because a migration that has to be RUN is a
+     * migration nobody runs.
+     *
+     * A note's path is stored relative to the project — see `notes/where.ts`
+     * for why, and for what happens to each shape a stored path can have. All
+     * four cases are decided by `resolved()` and none of them can lose a note:
+     * a relative path is joined onto the project, an absolute one written
+     * before this change is handed back as it stands and quietly becomes
+     * relative the next time anything writes, and one that climbs out of the
+     * project is left exactly as somebody typed it. Whether the document can be
+     * OPENED is a different question, asked later, by `notes/source.ts`.
+     *
+     * A copy rather than a mutation of the parsed object, so that the shape
+     * handed to callers is one thing and the file is another. `write()` does
+     * the same in reverse and they are the only two places that know.
+     */
+    const roots = rootsOf(projectPath)
+    const notes = (parsed.notes as Note[]).map((note) =>
+      typeof note?.path === 'string' ? { ...note, path: resolved(roots, note.path) } : note,
+    )
+    return { store: { version: 1, notes }, trouble: null, nowhere: false }
   } catch {
     return {
       store: { ...EMPTY, notes: [] },
@@ -133,8 +155,21 @@ function write(projectPath: string | null | undefined, store: Store): string | n
   if (trouble) return trouble
   if (path === null) return NOWHERE
 
+  /* The other half of the boundary. Everything above this line holds absolute
+     paths; the file holds paths relative to the project. Written from a copy so
+     that the notes the caller is still holding keep the spelling they were
+     handed — a `change()` that returned notes whose paths had turned relative
+     underneath it would be the one bug this arrangement exists to avoid. */
+  const roots = rootsOf(projectPath)
+  const onDisk: Store = {
+    version: store.version,
+    notes: store.notes.map((note) =>
+      typeof note?.path === 'string' ? { ...note, path: stored(roots, note.path) } : note,
+    ),
+  }
+
   const temporary = `${path}.writing`
-  writeFileSync(temporary, `${JSON.stringify(store, null, 2)}\n`)
+  writeFileSync(temporary, `${JSON.stringify(onDisk, null, 2)}\n`)
   renameSync(temporary, path)
   return null
 }
@@ -276,8 +311,8 @@ export function change(projectPath: string | null | undefined, op: Op): Outcome 
   const viaMcp = op.viaMcp === true
 
   if (op.op === 'add') {
-    const path = str(op.path, MAX_PATH)
-    if (!path) {
+    const asked = str(op.path, MAX_PATH)
+    if (!asked) {
       return {
         ok: false,
         error:
@@ -285,6 +320,34 @@ export function change(projectPath: string | null | undefined, op: Op): Outcome 
           + 'names it. A note with no anchor is a thought with nowhere to go back to.',
       }
     }
+    /*
+     * The path, in the one spelling this program uses.
+     *
+     * Absolute paths keep arriving here and always will: the host's
+     * `projectPath` is absolute by design, the passage a module relays is
+     * absolute, and every MCP caller sends one. They are taken exactly as
+     * before and turned into the project's own spelling of the same file, which
+     * is what `write()` will then store relative to the project.
+     *
+     * A relative path that climbs OUT of the project is the one shape refused,
+     * because it names nowhere. `../../etc/passwd` has no meaning except
+     * against a root, and the only root it could be joined to is the project it
+     * has just left. Refused here, at the door, while there is still somebody
+     * to tell — see `climbs` in `notes/where.ts` for why an ABSOLUTE path
+     * outside the project is not refused with it.
+     */
+    const roots = rootsOf(projectPath)
+    if (climbs(roots, asked)) {
+      return {
+        ok: false,
+        error:
+          `"${asked}" climbs out of the project. A note's document is named either absolutely, or relative to the `
+          + 'project it is in — and a relative path with .. in front of it is neither, because the only folder it '
+          + 'could be resolved against is the one it just left. Nothing was stored. Send the absolute path of the '
+          + 'document, which is what the paper module and the host both name it by.',
+      }
+    }
+    const path = resolved(roots, stored(roots, asked))
     const body = str(op.body, MAX_BODY)
     if (!body) {
       return { ok: false, error: 'A note has to say something. Nothing was written, so nothing was stored.' }
@@ -527,8 +590,15 @@ function ingest(
   op: Extract<Op, { op: 'ingest' }>,
   by: string,
 ): Outcome {
-  const path = str(op.path, MAX_PATH)
-  if (!path) return { ok: false, error: 'An ingestion has to name the file it read. Nothing was stored.' }
+  const named = str(op.path, MAX_PATH)
+  if (!named) return { ok: false, error: 'An ingestion has to name the file it read. Nothing was stored.' }
+  /* The same spelling the notes in the store are carrying, for the comparison
+     three lines down. `read()` hands every stored path back joined onto the
+     project's own root; a caller that named the same file by a symlinked prefix
+     would otherwise match none of them, and this function would mark every note
+     on the document as gone from a source it never left. */
+  const roots = rootsOf(projectPath)
+  const path = resolved(roots, stored(roots, named))
 
   /* The project half of this test is gone: every note in this store is already
      this project's, because of which file was opened. What is left is the file
@@ -543,6 +613,21 @@ function ingest(
   let revived = 0
   let reread = 0
   let retired = 0
+  /**
+   * Notes whose key this read spelled differently, with nothing else about them
+   * changed.
+   *
+   * Counted only so that the corrected key is actually written down. It is not
+   * in the sentence this returns and should not be: a key is this app's own
+   * handle on an annotation, not a fact about anybody's document, and a line
+   * announcing that eight identities were re-spelled would be a program
+   * reporting its own bookkeeping to somebody looking at their paper. Nothing a
+   * reader can see changed, which is the test for what belongs in that sentence.
+   *
+   * Without it the adoption would happen on every read and be thrown away every
+   * time, because a store is only written when something else about it moved.
+   */
+  let rekeyed = 0
   /**
    * The stored notes this read has accounted for.
    *
@@ -638,6 +723,7 @@ function ingest(
     const same = adopt(found.kind, quoted)
     if (same) {
       claimed.add(same)
+      if (same.source?.key !== sourceKey) rekeyed++
       const was = same.body
       if (same.source && !same.source.present) revived++
       if (was !== body) {
@@ -721,7 +807,7 @@ function ingest(
     gone++
   }
 
-  if (added || gone || moved || revived || reread || retired) {
+  if (added || gone || moved || revived || reread || retired || rekeyed) {
     const refused = write(projectPath, store)
     if (refused) return { ok: false, error: refused }
   }
