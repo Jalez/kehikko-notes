@@ -2,6 +2,7 @@ import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ID } from '../manifest.ts'
+import { aimOf, aimOffer, briefOfPicked, inFrontOf, merged, whyEmpty, type Shown } from '../notes/aim.ts'
 import { keyOf, shownAt as heldAt, standing, type Pointed } from '../notes/pointed.ts'
 import { briefOf, fileOf, scopeOf, type Scope } from '../notes/scope.ts'
 import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
@@ -28,7 +29,12 @@ import { useRoadmap, type GotoHandler, type Passage } from '@/wire/use-roadmap.t
  * > it should show all notes related to that page vs if only a part of the page
  * > is selected."
  *
- * So there is one screen and its scope is decided entirely by `context.passage`.
+ * So there is one screen and its scope is decided by `context.passage` — and,
+ * since the kehikko learned to say which containers are picked out and what
+ * each shows, by that too: when a person ticks containers, the list is the
+ * documents THOSE containers show, and the reader's passage is put aside until
+ * they untick. `notes/aim.ts` is the rule, including why "nothing ticked" is
+ * still the reader's passage here and not the union of every open document.
  * There is no picker here, no document list, no filter row — every one of those
  * would be a second answer to "what are we looking at" that could disagree with
  * the first. The container follows.
@@ -149,7 +155,16 @@ export function App() {
     )
   }, [])
 
-  const { where, project, projectPath, passage, chosen, resize, filters, point } = useRoadmap(ID, onGoto)
+  const { where, project, projectPath, passage, chosen, containers, resize, filters, point } = useRoadmap(ID, onGoto)
+
+  /**
+   * The host's list of containers, inflated once from the string the wire
+   * holds, and what the picks make of it. Memoised on the string and on the
+   * header's choice, so a context that re-states the same canvas is the same
+   * object and nothing below re-asks the store.
+   */
+  const onCanvas = useMemo<Shown[]>(() => shownFrom(containers), [containers])
+  const front = useMemo(() => inFrontOf({ containers: onCanvas, aim: aimOf(chosen) }), [onCanvas, chosen])
 
   /**
    * The two things this list can be narrowed by, which the host now draws.
@@ -196,13 +211,17 @@ export function App() {
   const scope = useMemo(() => scopeOf(shownAt), [shownAt])
 
   /**
-   * The rung on screen, which is the passage's own scope until somebody climbs.
+   * The rung on screen, which is the passage's own scope until somebody climbs
+   * — or, while the picks narrow the list, the first picked document's, which
+   * is what the heading and the compose box read. With several documents the
+   * heading says so itself; see `briefOfPicked`.
    */
   const shownScope: Scope = useMemo(() => {
+    if (front.narrowed) return scopeOf(front.documents[0] ?? null)
     if (widen === 'everything') return { kind: 'everything' }
     if (widen === 'document' && shownAt) return { kind: 'document', path: shownAt.path }
     return scopeOf(shownAt)
-  }, [widen, shownAt])
+  }, [front, widen, shownAt])
 
   /**
    * The way out, in at most two presses, and never more than the rung allows.
@@ -216,6 +235,10 @@ export function App() {
    */
   const climbs = useMemo(() => {
     const out: { said: string; press: () => void }[] = []
+    /* No ladder while the picks narrow the list: the ladder climbs out from
+       the reader's passage, and the list is not standing on it. The way out
+       is the `aim` control in the container header. */
+    if (front.narrowed) return out
     if (widen === null && (shownScope.kind === 'passage' || shownScope.kind === 'page')) {
       out.push({ said: `all of ${fileOf(shownScope.path)}`, press: () => setWiden('document') })
     }
@@ -224,7 +247,7 @@ export function App() {
     }
     if (widen !== null) out.push({ said: 'follow the reader', press: () => setWiden(null) })
     return out
-  }, [widen, shownScope])
+  }, [front.narrowed, widen, shownScope])
 
   /* Read inside the press, which is why it is a ref: `actions` is memoised on
      what a press NEEDS, and adding the current scope to that list would rebuild
@@ -276,11 +299,33 @@ export function App() {
    * project's notes — live, with no reload. That is the whole reason the host
    * sends it on every context change rather than once at startup.
    */
-  const ask: Ask | null = useMemo(() => {
+  /**
+   * What to ask the store, as a list — one ask per document.
+   *
+   * One ask, almost always: the reader's passage, or the rung they climbed to.
+   * Several when the picks narrow the list to containers showing several
+   * documents, and every one is asked in the same breath and merged — see
+   * `merged` in `notes/aim.ts`. `null` is nothing to ask and draws `Nowhere`;
+   * an EMPTY list is the picks having emptied it, which draws its own sentence
+   * rather than the one about nobody pointing.
+   */
+  const asks: Ask[] | null = useMemo(() => {
     if (where === 'listening') return null
     if (!projectPath) return null
+    if (front.narrowed) {
+      return front.documents.map((doc) => ({
+        project,
+        projectPath,
+        path: doc.path,
+        page: doc.page,
+        from: doc.from,
+        to: doc.to,
+        everything: false,
+        resolved: withResolved,
+      }))
+    }
     if (widen === 'everything') {
-      return { project, projectPath, path: null, page: null, from: null, to: null, everything: true, resolved: withResolved }
+      return [{ project, projectPath, path: null, page: null, from: null, to: null, everything: true, resolved: withResolved }]
     }
     if (!shownAt) return null
     /* One rung out: the whole file, with the range and the page dropped. The
@@ -288,28 +333,32 @@ export function App() {
        it costs nothing to ask for -- the store has always been able to answer
        it, and nothing offered it. */
     if (widen === 'document') {
-      return {
+      return [
+        {
+          project,
+          projectPath,
+          path: shownAt.path,
+          page: null,
+          from: null,
+          to: null,
+          everything: false,
+          resolved: withResolved,
+        },
+      ]
+    }
+    return [
+      {
         project,
         projectPath,
         path: shownAt.path,
-        page: null,
-        from: null,
-        to: null,
+        page: shownAt.page,
+        from: shownAt.from,
+        to: shownAt.to,
         everything: false,
         resolved: withResolved,
-      }
-    }
-    return {
-      project,
-      projectPath,
-      path: shownAt.path,
-      page: shownAt.page,
-      from: shownAt.from,
-      to: shownAt.to,
-      everything: false,
-      resolved: withResolved,
-    }
-  }, [where, widen, shownAt, project, projectPath, withResolved])
+      },
+    ]
+  }, [where, widen, shownAt, project, projectPath, withResolved, front])
 
   /*
    * Re-read on every change of scope, and after every write.
@@ -320,21 +369,22 @@ export function App() {
    * here is for. `round` is what a write bumps.
    */
   useEffect(() => {
-    if (!ask) {
+    if (!asks || asks.length === 0) {
       setLooked(null)
       return
     }
     let live = true
-    void look(ask)
-      .then((answer) => {
+    void Promise.all(asks.map(look))
+      .then((answers) => {
         if (!live) return
-        if ('error' in answer) {
-          setRefused(answer.error)
+        const refusal = answers.find((one): one is { error: string } => 'error' in one)
+        if (refusal) {
+          setRefused(refusal.error)
           setLooked(null)
-        } else {
-          setRefused(null)
-          setLooked(answer)
+          return
         }
+        setRefused(null)
+        setLooked(merged(answers.filter((one): one is Looked => !('error' in one))))
       })
       .catch(() => {
         if (live) setRefused('This app could not reach its own store.')
@@ -342,7 +392,7 @@ export function App() {
     return () => {
       live = false
     }
-  }, [ask, round])
+  }, [asks, round])
 
   /*
    * Every write carries the project, taken from the context AT THE MOMENT OF
@@ -473,8 +523,10 @@ export function App() {
    */
   const preambleComments = looked?.withdrawn.length ?? 0
   useEffect(() => {
-    filters(offer(preambleComments))
-  }, [filters, preambleComments])
+    /* And the third group, only when the host lists containers, with its own
+       count in its own label — see `aimOffer` in `notes/aim.ts`. */
+    filters([...offer(preambleComments), ...aimOffer(onCanvas)])
+  }, [filters, preambleComments, onCanvas])
 
   /**
    * How tall this page would like to be, asked for whenever what it draws
@@ -556,9 +608,35 @@ export function App() {
      offering it here would be offering to read a file that does not exist. */
   if (!projectPath) return <NoProject unhosted={where === 'unhosted'} />
   if (looked?.trouble) return <Trouble said={looked.trouble} />
-  if (!ask) return <Nowhere project={project} onEverything={() => setWiden('everything')} />
+  if (!asks) return <Nowhere project={project} onEverything={() => setWiden('everything')} />
+  /* The picks emptied it: say which containers are picked out and that they
+     show no document. Not `Nowhere`, whose sentence is about nobody pointing
+     — somebody may well be — and whose press widens to the project, which is
+     not the way out of this. The way out is the `aim` control in the header. */
+  const emptied = whyEmpty(front)
+  if (emptied) {
+    return (
+      <div className="min-w-0 space-y-2 p-3">
+        <p data-testid="narrowed-empty" className="text-xs text-muted-foreground">
+          {emptied}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Untick a container, pick out one that shows a document, or set this container’s aim to everything on this
+          kehikko.
+        </p>
+      </div>
+    )
+  }
 
-  const canWrite = widen === null && scope.kind !== 'nowhere' && scope.kind !== 'everything'
+  /* Writing anchors a note to the reader's own passage. While the picks
+     narrow the list, that is only honest when the passage's document is one of
+     the documents on screen; a note written into a document the list is not
+     showing would be filed and then not drawn. */
+  const canWrite =
+    widen === null
+    && scope.kind !== 'nowhere'
+    && scope.kind !== 'everything'
+    && (!front.narrowed || front.documents.some((doc) => doc.path === passage?.path))
   /* Nothing to read HERE -- adrift and withdrawn notes are on the document
      rather than at this scope, and a form opening over them would be the same
      burial in a different place. */
@@ -658,10 +736,17 @@ export function App() {
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
           <p
             data-testid="scope"
-            title={widen === 'everything' ? undefined : (shownAt?.path ?? undefined)}
+            data-narrowed={front.narrowed ? 'true' : undefined}
+            title={
+              front.narrowed
+                ? front.documents.map((doc) => doc.path).join('\n')
+                : widen === 'everything'
+                  ? undefined
+                  : (shownAt?.path ?? undefined)
+            }
             className="min-w-0 flex-1 truncate text-xs font-medium"
           >
-            {briefOf(shownScope)}
+            {front.narrowed ? briefOfPicked(front) : briefOf(shownScope)}
           </p>
           {climbs.map((climb) => (
             <Button
@@ -862,4 +947,43 @@ export function App() {
       {room.compose === 'fill' ? compose : null}
     </div>
   )
+}
+
+/**
+ * The host's containers, inflated from the string the wire holds.
+ *
+ * The parse lives beside the page that spells the result back into asks, so
+ * that the format has one owner on each side; `wire/use-roadmap.ts` flattens
+ * and this inflates. `''` is no containers. A quote is supplied empty because
+ * `PassageLike` carries one and nothing here reads it.
+ */
+function shownFrom(containers: string): Shown[] {
+  if (!containers) return []
+  try {
+    const parsed: unknown = JSON.parse(containers)
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((one): Shown[] => {
+      if (typeof one !== 'object' || one === null) return []
+      const row = one as { module?: unknown; selected?: unknown; documents?: unknown }
+      if (typeof row.module !== 'string' || !row.module) return []
+      const documents = Array.isArray(row.documents)
+        ? row.documents.flatMap((d) => {
+            const doc = d as { path?: unknown; page?: unknown; from?: unknown; to?: unknown } | null
+            if (!doc || typeof doc.path !== 'string' || !doc.path) return []
+            return [
+              {
+                path: doc.path,
+                page: typeof doc.page === 'number' ? doc.page : null,
+                from: typeof doc.from === 'number' ? doc.from : null,
+                to: typeof doc.to === 'number' ? doc.to : null,
+                quoted: '',
+              },
+            ]
+          })
+        : []
+      return [{ module: row.module, selected: row.selected === true, documents }]
+    })
+  } catch {
+    return []
+  }
 }

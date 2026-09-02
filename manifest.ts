@@ -197,6 +197,22 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     about: 'Notes anchored to passages of a document, and whether each one still points at the words it was written about.',
   },
   extensions: { emits: [], consumes: [] },
+  /**
+   * What this page does something about, written down for a registry.
+   *
+   * `passage` is the whole reason the page exists — the container narrows as
+   * the reader narrows — and was never declared here only because the field
+   * arrived after the page did. `containers` is newer: when a person picks
+   * containers out on the kehikko, the list becomes the documents those
+   * containers show, and the reader's passage is put aside until they untick.
+   * `notes/aim.ts` is the rule, and says why "nothing picked out" is still the
+   * reader's passage here rather than the union of every open document.
+   *
+   * Nothing is asked for and nothing is granted by this line; the context
+   * arrives whether or not it is here. See the essay on `reacts` in the
+   * protocol's `manifest.ts`.
+   */
+  reacts: ['passage', 'containers'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['passage:set'],
