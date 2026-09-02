@@ -119,6 +119,13 @@ export function planFrom(store: unknown, exists: (path: string) => boolean = exi
  * never heard of. A migration that rebuilt each note from a list of fields it
  * knew about would silently drop anything added since that list was written,
  * which is the one thing a migration must not do.
+ *
+ * `path` is one of the carried ones, and it is left absolute deliberately. A
+ * note's document is stored relative to the project now — see `notes/where.ts`
+ * — and the store migrates that on read, so a file this script writes is
+ * relativised the first time anything writes to it. Doing it here as well would
+ * be a second implementation of one rule, in a one-shot script, for no gain
+ * beyond a tidier first line in a file nobody has opened yet.
  */
 function stripped(note: OldNote): Record<string, unknown> {
   const { project: _project, projectPath: _projectPath, ...rest } = note

@@ -65,7 +65,26 @@ export interface Reply {
  *
  * ## The anchor is four fields and one of them is the words
  *
- * `path` and `page` say which document and which sheet. `from` and `to` are
+ * `path` and `page` say which document and which sheet — and `path` is stored
+ * RELATIVE to the project, resolved against it on every read. The argument is
+ * the one this file already makes about the vanished `project` field, applied
+ * one field along: the store is `<projectPath>/.kehikot/notes/notes.json`, so
+ * the project is the file's own location, and an absolute prefix on every note
+ * is a second copy of that fact — the copy that is wrong the moment the folder
+ * moves. It has been wrong twice: fifty-nine anchors were rewritten by hand
+ * when the paper moved into `.kehikot/paper/thesis/`, and the same project is
+ * moving again. Notes now travel with the repository they are inside.
+ *
+ * Absolute paths still arrive at every door and always will — the host's
+ * `projectPath` is absolute by design and so is every passage relayed from it —
+ * and they are relativised on the way in. What a reader of this type sees is
+ * absolute, always: the conversion lives in `read()` and `write()` in
+ * `notes/keep.ts` and nowhere else, so nothing that draws a note, checks an
+ * anchor or narrows a list has two spellings to think about. The whole
+ * argument, including what happens to a path that is NOT under the project, is
+ * in `notes/where.ts`.
+ *
+ * `from` and `to` are
  * byte offsets into that file and are null for a note written with nothing
  * selected — a note about a whole page, which is a real thing to write and not
  * a degenerate range.
@@ -265,11 +284,25 @@ export function sourceOf(note: Pick<Note, 'source'>): Source | null {
  * key anywhere in this shape: a store that has never heard of a project has no
  * way to show one project's notes under another's name.
  *
+ * A note's `path` in this file is relative to the project — see the essay on
+ * `Note` and the longer one in `notes/where.ts`. The exception is readable
+ * straight off the file: a stored path beginning with `/` names a document that
+ * is not inside this project, which is the one case that cannot be written
+ * relative to it without pointing somewhere else entirely.
+ *
  * `version` is kept at 1 and did not go up when the notes moved. It describes
  * the shape of what is inside the file, and the shape did not change — two
  * fields left every note, which every reader here already tolerates being
  * absent. What changed is WHERE the file is, and a version number inside a
  * document cannot say anything about that.
+ *
+ * It did not go up for the paths either, and that is the same reasoning rather
+ * than an oversight. A store written before this change is read correctly by
+ * this one — an absolute path under the project resolves to exactly the file it
+ * always named — so there is nothing a version number could switch on that the
+ * paths do not already say about themselves. A number that had to be bumped
+ * would be a migration somebody has to run, and a migration somebody has to run
+ * is one nobody runs.
  */
 export interface Store {
   version: 1

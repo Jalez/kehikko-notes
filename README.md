@@ -99,6 +99,25 @@ where there is one and the name otherwise. Two projects with a
 `chapters/intro.tex` are two piles, not one. A note nobody said a project about
 is its own pile and is never merged into whichever project happens to be open.
 
+## A note says where it is inside the project, not on this machine
+
+A note's `path` is stored RELATIVE to the project and resolved against it on
+every read. The store is already `<projectPath>/.kehikot/notes/notes.json`, so
+the project is the file's own location; an absolute prefix on every note was a
+second copy of that fact, and it was the copy that went wrong when the folder
+moved — 59 anchors rewritten by hand when the paper moved into
+`.kehikot/paper/thesis/`. Move the project now and every note still resolves,
+with nothing rewritten.
+
+Absolute paths still arrive at every door — `projectPath` is absolute by design
+and so is every passage relayed from it — and are relativised on the way in.
+Reading migrates: an absolute path under the project becomes relative the next
+time anything writes. An absolute path that is NOT under the project stays
+absolute and keeps naming the file it always named; a relative path that climbs
+out of the project is never joined onto it, is refused at the door, and is left
+alone in a store somebody hand-edited. Nothing is dropped in any of the four
+cases. The argument is in `notes/where.ts`.
+
 ## The doors
 
 | door | what it is |
