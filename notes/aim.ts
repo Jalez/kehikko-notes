@@ -174,6 +174,7 @@ export function merged<Row, Scope>(
     elsewhere: number
     withdrawn: Row[]
     verified: boolean
+    opened: boolean | null
     trouble: string | null
   }[],
 ): {
@@ -184,6 +185,7 @@ export function merged<Row, Scope>(
   elsewhere: number
   withdrawn: Row[]
   verified: boolean
+  opened: boolean | null
   trouble: string | null
 } | null {
   const first = looks[0]
@@ -196,8 +198,46 @@ export function merged<Row, Scope>(
     elsewhere: looks.reduce((sum, one) => sum + one.elsewhere, 0),
     withdrawn: looks.flatMap((one) => one.withdrawn),
     verified: looks.every((one) => one.verified),
+    /* False if ANY named document could not be opened: one unreadable
+       document among three is still a list that is not the list it claims to
+       be, and the sentence for it names the failure. Null only when nothing
+       named a document at all. */
+    opened: looks.some((one) => one.opened === false) ? false : looks.every((one) => one.opened === null) ? null : true,
     trouble: looks.find((one) => one.trouble !== null)?.trouble ?? null,
   }
+}
+
+/**
+ * The sentence for a list with nothing in it, in the three states that are
+ * three different states.
+ *
+ * ## Why one sentence was not enough
+ *
+ * "Nothing has been written here yet" was drawn over a document that exists
+ * and has no notes, and also over a path this app could not open at all —
+ * which is what it looks like when a picked-out container says it shows a
+ * document that is not there, or that `NOTES_ROOTS` fences off. The two are
+ * different states with different remedies (write a note; fix the path or the
+ * roots), and a reader given one sentence for both cannot tell an empty
+ * chapter from a wrong address. The protocol's essay on `context.containers`
+ * asks a consumer to say what its emptiness is FROM; this is that, one rung
+ * further in than `whyEmpty` above, which covers the case where nothing is
+ * aimed at anything.
+ *
+ *   - nothing aimed at: `whyEmpty` — the picked containers show no document.
+ *   - aimed at something that resolves, and empty: nothing written here yet.
+ *   - aimed at something that does not resolve: the document could not be
+ *     opened, by name, so nobody reads "no notes" off a file nobody read.
+ *
+ * `file` is the short name of the document, for the sentence; `adrift` is
+ * whether the scope hides only adrift notes, which is the fourth wording the
+ * page already had and keeps.
+ */
+export function saidOfEmpty(input: { opened: boolean | null; adrift: boolean; file: string | null }): string {
+  if (input.opened === false) {
+    return `This app could not open ${input.file ?? 'that document'}, so it cannot say what is anchored there — the notes it holds on it are shown as written, unchecked.`
+  }
+  return input.adrift ? 'Nothing is anchored here.' : 'Nothing has been written here yet.'
 }
 
 function onePerPath(documents: readonly PassageLike[]): PassageLike[] {

@@ -368,6 +368,66 @@ describe('the page’s own door', () => {
     expect((elsewhere?.body as { elsewhere: number }).elsewhere).toBe(1)
   })
 
+  test('edit rewrites the words of a typed note, and remove takes it and its replies for good', () => {
+    const written = answer('POST', '/api/note', new URLSearchParams(), { op: 'add', projectPath: project, path: CHAPTER, page: 1, from: FROM, to: TO, quoted: 'A module is one origin or it is nothing.', body: 'a tpyo' }, TICKET)
+    const id = (written?.body as { id: string }).id
+    answer('POST', '/api/note', new URLSearchParams(), { op: 'reply', projectPath: project, id, body: 'noted' }, TICKET)
+
+    const edited = answer('POST', '/api/note', new URLSearchParams(), { op: 'edit', projectPath: project, id, body: 'a typo' }, TICKET)
+    expect((edited?.body as { ok: boolean }).ok).toBe(true)
+    const onPage = answer('GET', '/api/notes', new URLSearchParams({ projectPath: project, path: CHAPTER }), null, null)
+    const rows = (onPage?.body as { shown: { note: { body: string; replies: unknown[] } }[] }).shown
+    expect(rows[0]?.note.body).toBe('a typo')
+    expect(rows[0]?.note.replies).toHaveLength(1)
+
+    const removed = answer('POST', '/api/note', new URLSearchParams(), { op: 'remove', projectPath: project, id }, TICKET)
+    expect((removed?.body as { ok: boolean; said: string }).ok).toBe(true)
+    expect((removed?.body as { said: string }).said).toContain('reply')
+    const after = answer('GET', '/api/notes', new URLSearchParams({ projectPath: project, path: CHAPTER }), null, null)
+    expect((after?.body as { shown: unknown[] }).shown).toHaveLength(0)
+    /* Gone for good is gone from the file, not hidden behind the resolved filter. */
+    const withResolved = answer('GET', '/api/notes', new URLSearchParams({ projectPath: project, path: CHAPTER, resolved: '1' }), null, null)
+    expect((withResolved?.body as { shown: unknown[] }).shown).toHaveLength(0)
+  })
+
+  test('neither edit nor remove touches a note lifted out of the source, and the refusal says why', () => {
+    /* The annotation is in the .tex; a body rewritten here would be put back
+       and a note removed here would be lifted again on the next read. */
+    const annotated = join(project, 'chapters', 'annotated.tex')
+    writeFileSync(annotated, 'Some prose.\n\\todo{check this figure}\nMore prose.\n')
+    const lifted = answer('GET', '/api/notes', new URLSearchParams({ projectPath: project, path: annotated }), null, null)
+    const rows = (lifted?.body as { shown: { note: { id: string; source: unknown } }[] }).shown
+    expect(rows).toHaveLength(1)
+    const id = rows[0]?.note.id ?? ''
+
+    const edited = answer('POST', '/api/note', new URLSearchParams(), { op: 'edit', projectPath: project, id, body: 'x' }, TICKET)
+    expect((edited?.body as { ok: boolean }).ok).toBe(false)
+    expect((edited?.body as { error: string }).error).toContain('lifted out of the document')
+    const removed = answer('POST', '/api/note', new URLSearchParams(), { op: 'remove', projectPath: project, id }, TICKET)
+    expect((removed?.body as { ok: boolean }).ok).toBe(false)
+    expect((removed?.body as { error: string }).error).toContain('lift it again')
+    const still = answer('GET', '/api/notes', new URLSearchParams({ projectPath: project, path: annotated }), null, null)
+    expect((still?.body as { shown: { note: { body: string } }[] }).shown[0]?.note.body).toBe('check this figure')
+  })
+
+  test('the MCP door has no edit and no remove', () => {
+    expect(rpc('remove_note', { ...OF_PROJECT, note: 'x' }).failed).toBe(true)
+    expect(rpc('edit_note', { ...OF_PROJECT, note: 'x', body: 'y' }).failed).toBe(true)
+  })
+
+  test('a read says whether the document it was asked about could be opened', () => {
+    /* Three empty states: "nothing here" over a document that exists, "could
+       not open" over one that does not, and no document named at all. The page
+       draws three sentences off this; `verified` could not tell the first two
+       apart on a document with no notes. */
+    const there = answer('GET', '/api/notes', new URLSearchParams({ projectPath: project, path: CHAPTER }), null, null)
+    expect((there?.body as { opened: boolean | null }).opened).toBe(true)
+    const gone = answer('GET', '/api/notes', new URLSearchParams({ projectPath: project, path: join(project, 'chapters', 'nowhere.tex') }), null, null)
+    expect((gone?.body as { opened: boolean | null }).opened).toBe(false)
+    const everything = answer('GET', '/api/notes', new URLSearchParams({ projectPath: project, everything: '1' }), null, null)
+    expect((everything?.body as { opened: boolean | null }).opened).toBeNull()
+  })
+
   test('an op this door does not know is named rather than shrugged at', () => {
     const reply = answer('POST', '/api/note', new URLSearchParams(), { op: 'obliterate', id: 'x' }, TICKET)
     expect(String((reply?.body as { error: string }).error)).toContain('obliterate')

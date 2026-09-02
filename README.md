@@ -10,7 +10,7 @@ it learns which project is open and where in a document somebody is pointing.
 ```
 ./run.sh                      # http://127.0.0.1:7940
 bun run register              # tell a host on this machine where it answers
-bun test                      # 110 tests, no browser needed for any of them
+bun run test                  # no browser needed for any of them
 ```
 
 ## The ladder
@@ -77,8 +77,17 @@ Nothing is ever re-anchored automatically. `reanchor_note`, or one press on the
 page, is how a record is made to match a file — because silently rewriting
 somebody's note to match a file this program guessed about is the same class of
 mistake as attaching it to the wrong sentence, and unrecoverable rather than
-visible. Nothing is ever deleted either: `resolve_note` is what "dealt with"
-means, and it is reversible.
+visible. Nothing is ever deleted by an agent: `resolve_note` is what "dealt
+with" means, and it is reversible. The page has one more press — a person may
+rewrite or remove a note THEY typed, from an icon group that appears on the
+row, behind a press that has to be made twice and says what it will do. A note
+lifted out of the `.tex` gets neither, because the next read of the file would
+put it back; those are resolved here or edited in the document.
+
+An adrift note — one whose passage is gone — is read here and never pointed
+at: its words, its author and its date are on the row, and pressing it opens
+the row rather than sending the canvas a quote this module has just found
+absent from the file.
 
 ## Which files it opens
 
@@ -126,7 +135,7 @@ cases. The argument is in `notes/where.ts`.
 | `/.well-known/roadmap-module.json` | The manifest. |
 | `/healthz` | Whether the store reads, and how many notes are in it. |
 | `/mcp` | Five tools: `notes`, `add_note`, `reply_to_note`, `resolve_note`, `reanchor_note`. |
-| `/api/notes`, `/api/note` | The page's own read and write. Writes carry a per-process ticket printed into `/app`. |
+| `/api/notes`, `/api/note` | The page's own read and write. Writes carry a per-process ticket printed into `/app`, and this door alone takes `edit` and `remove`. |
 
 All of them are middleware in front of the one Vite server, because a module is
 one origin or it is nothing.
