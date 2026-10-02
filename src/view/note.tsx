@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge.tsx'
 import { fileOf } from '../../notes/scope.ts'
 import { withoutRules } from '../../notes/readable.ts'
 import { ROOMY, type Room } from '../../notes/room.ts'
+import { showsQuote } from '../../notes/quote.ts'
 
 import { Button } from '@/components/ui/button.tsx'
 
@@ -21,8 +22,8 @@ import { Button } from '@/components/ui/button.tsx'
  * would look exactly like one whose passage is still there until they had
  * already read it and formed an opinion about a sentence that no longer exists.
  * So the badge is first, it is a WORD as well as a colour, and the sentence
- * explaining it sits under the quote where somebody comparing the two will
- * find it.
+ * explaining it sits under the quote, where there is one, so that somebody
+ * comparing the two will find it.
  *
  * That argument is about making the BAD states loud, and for its whole life
  * this file also drew the good one — a badge saying `anchored` on every healthy
@@ -51,15 +52,31 @@ import { Button } from '@/components/ui/button.tsx'
  * verdict was the ONLY badge on every row of the 220-pixel container the
  * complaint came out of.
  *
- * ## The quote is shown even when — especially when — it is adrift
+ * ## The quote is shown where a press cannot show it — and so, especially, when it is adrift
  *
  * A note whose passage is gone is the most interesting note on the page: it is
  * the record of what somebody thought about a sentence that has since been
  * changed. Hiding it, or showing it without its quote, would leave a reader
- * with an opinion and no idea what it was about. So the quote is always drawn,
- * and it is drawn as a `blockquote` rather than inside anything with
- * `whitespace-nowrap` on it — see the essay in `badge.tsx` for why that
- * distinction is load-bearing at 220 pixels.
+ * with an opinion and no idea what it was about.
+ *
+ * For a long time that argument was stretched over every row, and the quote
+ * was drawn on all of them. On a healthy row it is the wrong argument. Pressing
+ * the row points the paper at the passage and the paper highlights it, in its
+ * own document with the sentences either side, so a quote on an `exact` or a
+ * `moved` row repeats what one press shows properly — and the same badge test
+ * above applies: what is on every healthy row is the default spelled out, and
+ * here it was a paragraph of italics between a reader and the note. The
+ * owner's rule: draw the quote only where pressing the note cannot show the
+ * passage in the paper.
+ *
+ * So the quote stays exactly where it is the only record there is: on an
+ * adrift note, whose passage is gone; on an unchecked one, where whatever a
+ * press lights up is a guess; on a whole-page note, which has no range to
+ * light; and on every row of a page nothing is framing, where there is no
+ * paper to press to. The decision, state by state and argued, is `showsQuote`
+ * in `notes/quote.ts`. Where it is drawn, it is drawn as a `blockquote` rather
+ * than inside anything with `whitespace-nowrap` on it — see the essay in
+ * `badge.tsx` for why that distinction is load-bearing at 220 pixels.
  *
  * ## In a small container a row is a PREFIX of itself, and the rest is one press away
  *
@@ -76,9 +93,9 @@ import { Button } from '@/components/ui/button.tsx'
  * that exists only at one size, and a row nobody has pressed is never in a
  * state a roomier container could not draw.
  *
- * The quote survives that in clamped form rather than being dropped, because of
- * the paragraph above it: an adrift note without its words is an opinion about
- * nothing. Two lines of it and a press is a smaller version of the same
+ * Where it is drawn at all, the quote survives that in clamped form rather than
+ * being dropped, because of the essay above it: an adrift note without its
+ * words is an opinion about nothing. Two lines of it and a press is a smaller version of the same
  * promise; none of it would be a different one.
  */
 
@@ -489,8 +506,14 @@ export function NoteRow({
         somebody reading a column of notes came to read. Nothing is lost: for a
         derived note the quote's words are all in the body, and the rules that
         were only ever a line drawn in a text editor are not.
+
+        And for a typed note, only where a press cannot show the passage in the
+        paper — see `showsQuote`. A healthy row in a hosted container leaves
+        its quote to the paper, which highlights the same words in context;
+        an adrift, unchecked or whole-page row, or any row on an unframed page,
+        draws it, because there it is the only record of the passage on screen.
       */}
-      {note.quoted && !source ? (
+      {note.quoted && !source && showsQuote(anchor.state, Boolean(actions.point)) ? (
         <blockquote
           style={clamped(room.quoteLines, open)}
           className="mt-1 min-w-0 border-l-2 border-border pl-2 text-xs italic text-muted-foreground"
@@ -628,8 +651,11 @@ export function NoteRow({
         </p>
       ) : null}
 
-      {/* The anchor's own sentence. Under the quote, because the two are read
-          together: "these words, and here is what has become of them". The
+      {/* The anchor's own sentence. Under the quote where one is drawn, because
+          the two are read together: "these words, and here is what has become
+          of them". A `moved` row in a hosted container draws no quote — a press
+          shows the words in the paper — so there the sentence stands alone,
+          saying what the paper cannot: that they are not where they were. The
           BADGE says which of the five verdicts it is at every size; this
           sentence is the paragraph explaining that word, and a paragraph is
           what a 300-pixel box has least of. */}
