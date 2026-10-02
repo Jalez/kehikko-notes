@@ -416,6 +416,92 @@ describe('an adrift note is a note a person can still read, and a press that poi
   })
 })
 
+describe('the quote is drawn only where a press cannot show the passage in the paper', () => {
+  /*
+   * The owner: a press already points the paper at the passage and the paper
+   * highlights it, so a quote on a healthy row repeats what one press shows.
+   * It stays exactly where a press cannot show it. See `notes/quote.ts`.
+   *
+   * Asserted as "no blockquote on the row" rather than "the words are absent",
+   * because the words are absent from a row for one reason and present in a
+   * different element for none.
+   */
+  const points = { ...actions, point: () => {} }
+  const words = 'A module is one origin or it is nothing.'
+  const quoteOn = (container: HTMLElement) => container.querySelector('blockquote')
+
+  test('an exact note in a container that can point leaves it to the paper', () => {
+    const { container } = render(<NoteRow one={anchored('exact')} actions={points} />)
+    expect(quoteOn(container)).toBeNull()
+    expect(screen.queryByText(words)).toBeNull()
+  })
+
+  test('and so does a moved one, whose words were found again', () => {
+    const { container } = render(<NoteRow one={anchored('moved')} actions={points} />)
+    expect(quoteOn(container)).toBeNull()
+    /* Its badge and its sentence still say it moved: that is the part the
+       paper cannot say. */
+    expect(screen.getByText('moved')).toBeDefined()
+    expect(screen.getByTestId('anchor-said')).toBeDefined()
+  })
+
+  test('not even once the row is opened — opening it is the press that shows the paper', () => {
+    const { container } = render(<NoteRow one={anchored('exact')} actions={points} />)
+    fireEvent.click(screen.getByRole('button', { name: /is this still true/ }))
+    expect(quoteOn(container)).toBeNull()
+  })
+
+  test('an adrift note keeps it, because the passage is gone', () => {
+    const { container } = render(<NoteRow one={anchored('adrift')} actions={points} />)
+    expect(quoteOn(container)?.textContent).toBe(words)
+  })
+
+  test('an unchecked note keeps it, because whatever a press lights up is a guess', () => {
+    const { container } = render(<NoteRow one={anchored('unverified')} actions={points} />)
+    expect(quoteOn(container)?.textContent).toBe(words)
+  })
+
+  test('a whole-page note keeps it, because a press lands on no range', () => {
+    const { container } = render(
+      <NoteRow one={anchored('unranged', { from: null, to: null, quoted: 'the page it was about' })} actions={points} />,
+    )
+    expect(quoteOn(container)?.textContent).toBe('the page it was about')
+  })
+
+  test('on a page nothing is framing, an exact note keeps it: there is no paper to press to', () => {
+    const { container } = render(<NoteRow one={anchored('exact')} actions={actions} />)
+    expect(quoteOn(container)?.textContent).toBe(words)
+  })
+
+  test('and a compact row in a container that can point draws none either', () => {
+    const { container } = render(
+      <NoteRow one={anchored('exact')} actions={points} room={roomFor({ width: 220, height: 300 })} />,
+    )
+    expect(quoteOn(container)).toBeNull()
+    expect(screen.getByText('is this still true after the rewrite?')).toBeDefined()
+  })
+
+  test('a note lifted out of the .tex still draws none, adrift or not, framed or not', () => {
+    const derived = (state: Anchored['anchor']['state']) =>
+      anchored(state, {
+        source: {
+          key: '/x/chapters/bridge.tex#todo:0badc0de',
+          kind: 'todo',
+          present: true,
+          seenAt: '2026-01-01T00:00:00.000Z',
+          goneAt: null,
+        },
+      })
+    for (const state of ['exact', 'adrift'] as const) {
+      for (const acts of [actions, points]) {
+        const { container } = render(<NoteRow one={derived(state)} actions={acts} />)
+        expect(quoteOn(container)).toBeNull()
+        cleanup()
+      }
+    }
+  })
+})
+
 describe('the controls on a row: edit, resolve, remove', () => {
   /*
    * "I'd like to see an icon button in a button group shown for all notes when
