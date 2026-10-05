@@ -16,7 +16,7 @@
   other origin - a file:// page, a second port - is a blank frame with an error
   in a console nobody is reading.
 
-  The container is a BOX, and `roadmap.resize` is ignored unless `?grow=1`. That is
+  The container is a BOX, and `kehikot.resize` is ignored unless `?grow=1`. That is
   what the canvas does with a container whose "grow" is off (see `onHeight` in
   kehikko's `App.tsx`, which also never SHRINKS a container), and it is the case
   this module has to be good at: the person chose the size, and the module lives
@@ -87,10 +87,10 @@
     if (event.source !== frame.contentWindow) return
     const data = event.data
     if (!data || typeof data !== 'object') return
-    if (data.type === 'roadmap.ready') {
-      frame.contentWindow.postMessage({ type: 'roadmap.context', protocol: 1, ...context }, '*')
+    if (data.type === 'kehikot.ready') {
+      frame.contentWindow.postMessage({ type: 'kehikot.context', protocol: 1, ...context }, '*')
     }
-    if (data.type === 'roadmap.resize') {
+    if (data.type === 'kehikot.resize') {
       asked = Number(data.height) || 0
       /* Reported, always; obeyed only when a container says it may grow. The number is
          what this module thinks it needs, and the probe reads it off this page. */
@@ -98,25 +98,25 @@
       said.textContent = `${w}x${h} - the module asked for ${asked}px`
       document.body.dataset.asked = String(asked)
     }
-    if (data.type === 'roadmap.filters') {
+    if (data.type === 'kehikot.filters') {
       /* The offer, which a real host draws in the container header. Written down
          rather than drawn: what a probe needs to know is that it arrived, that
          it is the whole offer each time, and that a label carrying a count says
          the right number for what is on screen. */
       document.body.dataset.offer = JSON.stringify(data.groups ?? [])
     }
-    if (data.type === 'roadmap.request') {
+    if (data.type === 'kehikot.request') {
       /* Every request is answered, and `passage.set` is answered by BECOMING the
          new context - which is what makes pressing a note testable here. */
       if (data.method === 'passage.set') {
         context.passage = data.params?.passage ?? null
-        frame.contentWindow.postMessage({ type: 'roadmap.context', protocol: 1, ...context }, '*')
+        frame.contentWindow.postMessage({ type: 'kehikot.context', protocol: 1, ...context }, '*')
       }
-      frame.contentWindow.postMessage({ type: 'roadmap.response', id: data.id, ok: true, data: {} }, '*')
+      frame.contentWindow.postMessage({ type: 'kehikot.response', id: data.id, ok: true, data: {} }, '*')
     }
   })
   frame.addEventListener('load', () => {
-    frame.contentWindow.postMessage({ type: 'roadmap.hello', protocol: 1, session: 'probe', context, state: null }, '*')
+    frame.contentWindow.postMessage({ type: 'kehikot.hello', protocol: 1, session: 'probe', context, state: null }, '*')
   })
   frame.src = '/app'
 </script>

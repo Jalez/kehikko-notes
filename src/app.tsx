@@ -15,7 +15,7 @@ import { Compose } from '@/view/compose.tsx'
 import { NoteRow, type NoteActions } from '@/view/note.tsx'
 import { useRoom } from '@/view/room.ts'
 import { Listening, NoProject, Nowhere, Trouble } from '@/view/screens.tsx'
-import { useRoadmap, type GotoHandler, type Passage } from '@/wire/use-roadmap.ts'
+import { useKehikot, type GotoHandler, type Passage } from '@/wire/use-kehikot.ts'
 
 /**
  * The page.
@@ -155,7 +155,7 @@ export function App() {
     )
   }, [])
 
-  const { where, project, projectPath, passage, chosen, containers, resize, filters, point } = useRoadmap(ID, onGoto)
+  const { where, project, projectPath, passage, chosen, containers, resize, filters, point } = useKehikot(ID, onGoto)
 
   /**
    * The host's list of containers, inflated once from the string the wire
@@ -492,6 +492,7 @@ export function App() {
             const at = {
               path: one.note.path,
               page: one.note.page,
+              section: null,
               from: one.anchor.from,
               to: one.anchor.to,
               quoted: one.note.quoted.slice(0, 2000),
@@ -983,7 +984,7 @@ export function App() {
  * The host's containers, inflated from the string the wire holds.
  *
  * The parse lives beside the page that spells the result back into asks, so
- * that the format has one owner on each side; `wire/use-roadmap.ts` flattens
+ * that the format has one owner on each side; `wire/use-kehikot.ts` flattens
  * and this inflates. `''` is no containers. A quote is supplied empty because
  * `PassageLike` carries one and nothing here reads it.
  */

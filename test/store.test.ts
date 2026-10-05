@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { KEHIKOT_DIR } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR } from 'kehikot-module-protocol'
 
 import { dataFile, makeDir } from '../store.ts'
 import { change, notesOf, read } from '../notes/keep.ts'

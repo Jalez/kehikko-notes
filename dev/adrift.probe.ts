@@ -5,7 +5,7 @@
  *     rm -rf /tmp/notes-adrift-project && mkdir -p /tmp/notes-adrift-project/.kehikot/notes
  *     cp -R <CS-DEGREE>/.kehikot/paper /tmp/notes-adrift-project/.kehikot/
  *     cp <CS-DEGREE>/.kehikot/notes/notes.json /tmp/notes-adrift-project/.kehikot/notes/
- *     ROADMAP_MODULES_DIR=/tmp/notes-scratch/registry PORT=7961 bunx vite      # in this worktree
+ *     KEHIKOT_MODULES_DIR=/tmp/notes-scratch/registry PORT=7961 bunx vite      # in this worktree
  *     HOST_SRC=/Users/jaakkorajala/Projects/kehikko/src bun dev/adrift.probe.ts   # the host as it ships
  *     HOST_SRC=<host worktree>/src bun dev/adrift.probe.ts                       # the host with the fix
  *
@@ -55,9 +55,9 @@ type Passage = { path: string; page: number | null; from: number | null; to: num
 const paperAt: Passage = { path: MAIN, page: 1, from: null, to: null, quoted: '' }
 
 const placements = [
-  { i: 'roadmap.checklist', x: 0, y: 0, selected: false },
-  { i: 'roadmap.paper', x: 1, y: 0, selected: true },
-  { i: 'roadmap.notes', x: 2, y: 0, selected: false },
+  { i: 'kehikot.checklist', x: 0, y: 0, selected: false },
+  { i: 'kehikot.paper', x: 1, y: 0, selected: true },
+  { i: 'kehikot.notes', x: 2, y: 0, selected: false },
 ]
 
 const host = (width: number, height: number) => `<!doctype html>
@@ -83,21 +83,21 @@ const host = (width: number, height: number) => `<!doctype html>
   const greet = () => {
     if (greeted) return
     greeted = true
-    frame.contentWindow.postMessage({ type: 'roadmap.hello', protocol: 2, session: 'adrift', state: null, context: current }, '*')
+    frame.contentWindow.postMessage({ type: 'kehikot.hello', protocol: 2, session: 'adrift', state: null, context: current }, '*')
   }
   addEventListener('message', (event) => {
     if (event.origin !== FROM) return
     const message = event.data
     if (!message || typeof message.type !== 'string') return
     window.__sent.push(message)
-    if (message.type === 'roadmap.ready') greet()
-    if (message.type === 'roadmap.request') {
-      frame.contentWindow.postMessage({ type: 'roadmap.response', id: message.id, ok: true, data: {} }, '*')
+    if (message.type === 'kehikot.ready') greet()
+    if (message.type === 'kehikot.request') {
+      frame.contentWindow.postMessage({ type: 'kehikot.response', id: message.id, ok: true, data: {} }, '*')
     }
   })
   window.__context = (over) => {
     current = Object.assign(base(), over || {})
-    frame.contentWindow.postMessage(Object.assign({ type: 'roadmap.context', protocol: 2 }, current), '*')
+    frame.contentWindow.postMessage(Object.assign({ type: 'kehikot.context', protocol: 2 }, current), '*')
   }
   frame.addEventListener('load', () => {
     greeted = false
@@ -126,10 +126,10 @@ for (const size of [
 
   /* The host's seat: who pointed last, at what, and what every row therefore says. */
   let passage: Passage | null = paperAt
-  let pointedBy: string | null = 'roadmap.paper'
+  let pointedBy: string | null = 'kehikot.paper'
   /* The shape the host with the fix takes: each pointer's last pointing. The
      host as it ships ignores this argument and reads `pointedBy`. */
-  const pointings: Record<string, Passage> = { 'roadmap.paper': paperAt }
+  const pointings: Record<string, Passage> = { 'kehikot.paper': paperAt }
   const compose = () =>
     containersOf({ placements, said: {}, passage, pointedBy, pointed: pointings, selection: [], selectedBy: null } as never)
   const tell = async () => {
@@ -190,7 +190,7 @@ for (const size of [
     let request: { params?: { passage?: Passage } } | undefined
     for (let n = 0; n < 20 && !request; n += 1) {
       await page.waitForTimeout(100)
-      request = (await seen()).slice(before).find((m) => m.type === 'roadmap.request' && m.method === 'passage.set')
+      request = (await seen()).slice(before).find((m) => m.type === 'kehikot.request' && m.method === 'passage.set')
     }
     if (!request) {
       console.log(`  ${name}: pressed ${id}; NO passage.set went out`)
@@ -199,8 +199,8 @@ for (const size of [
       return
     }
     passage = request.params?.passage ?? null
-    pointedBy = passage ? 'roadmap.notes' : null
-    if (passage) pointings['roadmap.notes'] = passage
+    pointedBy = passage ? 'kehikot.notes' : null
+    if (passage) pointings['kehikot.notes'] = passage
     console.log(`  ${name}: pressed ${id}; passage.set → ${JSON.stringify({ ...passage, quoted: (passage?.quoted ?? '').slice(0, 30) + '…' })}`)
     containers = await tell()
     say(`${name}, after the host folded it in`, await read(), containers)
@@ -211,8 +211,8 @@ for (const size of [
 
   /* Back where we started: Paper points again (the reader turned a page). */
   passage = { ...paperAt, page: 2 }
-  pointedBy = 'roadmap.paper'
-  pointings['roadmap.paper'] = passage
+  pointedBy = 'kehikot.paper'
+  pointings['kehikot.paper'] = passage
   containers = await tell()
   say('2 paper points again (page 2)', await read(), containers)
 
@@ -221,8 +221,8 @@ for (const size of [
 
   /* The hover group: point at a closed row and read what appears. */
   passage = { ...paperAt, page: 3 }
-  pointedBy = 'roadmap.paper'
-  pointings['roadmap.paper'] = passage
+  pointedBy = 'kehikot.paper'
+  pointings['kehikot.paper'] = passage
   containers = await tell()
   const second = frame.locator('[data-testid="note"]').nth(1)
   await second.scrollIntoViewIfNeeded({ timeout: 5000 })
@@ -250,7 +250,7 @@ for (const size of [
 
   /* The third empty state: paper picked out and pointing at a document that is not there. */
   passage = { path: `${PROJECT}/.kehikot/paper/thesis/chapters/7_nowhere.tex`, page: 1, from: null, to: null, quoted: '' }
-  pointings['roadmap.paper'] = passage
+  pointings['kehikot.paper'] = passage
   containers = await tell()
   const r5 = await read()
   say('5 paper picked, pointing at a document that does not exist', r5, containers)

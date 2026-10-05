@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { LIMITS, MANIFEST_KIND, PROTOCOL, manifestSchema, speaks } from 'roadmap-module-protocol'
+import { LIMITS, MANIFEST_KIND, PROTOCOL, manifestSchema, speaks } from 'kehikot-module-protocol'
 
 import { ID, MANIFEST, VERSION } from '../manifest.ts'
 
@@ -37,7 +37,7 @@ describe('what it asks for', () => {
        says why it turned over: a note IS a passage, and a person pressing one
        is a person pointing at it again. What the old argument keeps is the
        bound — nothing here points on a context, a load or a filter — and that
-       bound lives in `wire/use-roadmap.ts` and `app.tsx`, not in a manifest. */
+       bound lives in `wire/use-kehikot.ts` and `app.tsx`, not in a manifest. */
     expect(MANIFEST.declares.uses).toContain('passage:set')
   })
 
