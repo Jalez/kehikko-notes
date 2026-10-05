@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 
-import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'kehikot-module-protocol'
 
 import { ID } from './manifest.ts'
 
@@ -25,13 +25,13 @@ import { ID } from './manifest.ts'
  * and `rm -r .kehikot/notes` is a sentence a person can say, which is most of
  * what the folder-per-module level buys.
  *
- * The folder names and the joins are `roadmap-module-protocol`'s, deliberately,
+ * The folder names and the joins are `kehikot-module-protocol`'s, deliberately,
  * and not this file's. Four modules answering "where does my data live" for
  * themselves is four answers, and the disagreement has no symptom worth the
  * name: every module starts, every module saves, and a person finds their notes
  * in one folder and their checklists in another with nothing on any screen to
- * say why. That is the same class of failure as `roadmap.hello` against
- * `roadmap.Hello`, which is what that package exists for. The module's own
+ * say why. That is the same class of failure as `kehikot.hello` against
+ * `kehikot.Hello`, which is what that package exists for. The module's own
  * folder is derived from `ID` there too, rather than being a second spelling of
  * "notes" written down here.
  *

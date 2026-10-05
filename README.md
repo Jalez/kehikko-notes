@@ -24,7 +24,7 @@ The ask this module exists for:
 > show all notes related to that page vs if only a part of the page is selected."
 
 That is one fact — where the reader is pointing — known to four depths, so it
-travels as one nullable field in `roadmap.context`:
+travels as one nullable field in `kehikot.context`:
 
 ```
 passage: { path, page, from, to, quoted } | null
@@ -37,7 +37,7 @@ passage: { path, page, from, to, quoted } | null
 | `{ path, page }` | The notes on that page, and a count of the ones elsewhere in the document. |
 | `{ path, page, from, to, quoted }` | The notes overlapping that passage, and a count of the rest. |
 
-The field is `passage` in `roadmap-module-protocol` 0.9.0, set by
+The field is `passage` in `kehikot-module-protocol` 0.9.0, set by
 `passage.set` under the `passage:set` capability. This module CONSUMES it and
 declares no capabilities at all — the module that shows the document is the one
 that points.
@@ -48,7 +48,7 @@ eleven and nine are behind a filter nobody mentioned".
 
 The two filters this page has — whether resolved notes are in the list, and
 whether the preamble comments it no longer lifts are — are OFFERED rather than
-drawn, over `roadmap.filters`. The host draws one control in the container
+drawn, over `kehikot.filters`. The host draws one control in the container
 header and sends the choice back in `context.filters`, remembered per container.
 The counts stay on the page, because a host cannot count rows it does not
 render. The scope ladder is not a filter and did not move: it is the way back
@@ -132,7 +132,8 @@ cases. The argument is in `notes/where.ts`.
 | door | what it is |
 | --- | --- |
 | `/app` | The page. Generated per request so the write ticket can reach it without a route of its own. |
-| `/.well-known/roadmap-module.json` | The manifest. |
+| `/.well-known/kehikot-module.json` | The manifest. |
+| `/.well-known/roadmap-module.json` | The same manifest in the spelling a host from before the rename asks for. |
 | `/healthz` | Whether the store reads, and how many notes are in it. |
 | `/mcp` | Five tools: `notes`, `add_note`, `reply_to_note`, `resolve_note`, `reanchor_note`. |
 | `/api/notes`, `/api/note` | The page's own read and write. Writes carry a per-process ticket printed into `/app`, and this door alone takes `edit` and `remove`. |

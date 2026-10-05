@@ -2,7 +2,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { moduleFile } from 'roadmap-module-protocol'
+import { moduleFile } from 'kehikot-module-protocol'
 
 import { ID } from '../manifest.ts'
 import { FILE, makeDir } from '../store.ts'

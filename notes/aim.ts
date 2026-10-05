@@ -54,7 +54,7 @@ import type { PassageLike } from './scope.ts'
  * is picked out and shows no document" is a different sentence from "nothing
  * has been written on what paper shows", with a different remedy. The control
  * that turns the narrowing off is the `aim` group this page offers the host
- * over `roadmap.filters`, in the container header beside its other two.
+ * over `kehikot.filters`, in the container header beside its other two.
  *
  * ## An older host
  *
@@ -74,7 +74,7 @@ export const AIM = 'aim'
 export type Aim = 'follow' | 'all'
 
 /** The choice out of `context.filters`, read leniently: anything that is not `all` is following. */
-export function aimOf(chosen: Readonly<Record<string, string>> | null | undefined): Aim {
+export function aimOf(chosen: Readonly<Record<string, string | readonly string[]>> | null | undefined): Aim {
   return chosen && Object.hasOwn(chosen, AIM) && chosen[AIM] === 'all' ? 'all' : 'follow'
 }
 
@@ -148,7 +148,7 @@ export function whyEmpty(front: InFront): string | null {
   return `${list(names)} ${one ? 'is' : 'are'} picked out and ${one ? 'shows' : 'show'} no document, so there is no place here for a note to be about.`
 }
 
-/** The last word of a module id, which is what the ids look like: `roadmap.journeys` is `journeys`. */
+/** The last word of a module id, which is what the ids look like: `kehikot.journeys` is `journeys`. */
 export function nameOf(module: string): string {
   const cut = module.lastIndexOf('.')
   return cut === -1 ? module : module.slice(cut + 1)

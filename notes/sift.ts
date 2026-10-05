@@ -1,4 +1,4 @@
-import type { FilterChoice, FilterGroup } from 'roadmap-module-protocol'
+import type { FilterChoice, FilterGroup } from 'kehikot-module-protocol'
 
 /**
  * What this container can be narrowed by, in the host's words rather than in its own.
@@ -11,7 +11,7 @@ import type { FilterChoice, FilterGroup } from 'roadmap-module-protocol'
  * own words and its own corner. None of them could put it anywhere else,
  * because the strip around a module belongs to the host.
  *
- * `roadmap.filters` is the host learning to take it: this file says what the
+ * `kehikot.filters` is the host learning to take it: this file says what the
  * page can be narrowed by, the host draws one control in the container header,
  * and the choice comes back in `context.filters` — remembered per container, so
  * it survives a reload and an app quit. The host is never told what any of it

@@ -19,10 +19,10 @@ const INTRO = { path: '/thesis/chapters/1_introduction.tex', page: null, from: n
 function canvas(picked: string[] = []): Shown[] {
   const is = (id: string) => picked.includes(id)
   return [
-    { module: 'roadmap.paper', selected: is('roadmap.paper'), documents: [PARAGRAPH, CHAPTER] },
-    { module: 'roadmap.references', selected: is('roadmap.references'), documents: [INTRO] },
-    { module: 'roadmap.journeys', selected: is('roadmap.journeys'), documents: [] },
-    { module: 'roadmap.notes', selected: is('roadmap.notes'), documents: [] },
+    { module: 'kehikot.paper', selected: is('kehikot.paper'), documents: [PARAGRAPH, CHAPTER] },
+    { module: 'kehikot.references', selected: is('kehikot.references'), documents: [INTRO] },
+    { module: 'kehikot.journeys', selected: is('kehikot.journeys'), documents: [] },
+    { module: 'kehikot.notes', selected: is('kehikot.notes'), documents: [] },
   ]
 }
 
@@ -42,7 +42,7 @@ describe('nothing picked out leaves the page following the reader', () => {
 
 describe('some picked out means the documents those show', () => {
   test('one place per document, the narrowest — ticking the paper does not widen to the chapter', () => {
-    const front = inFrontOf({ containers: canvas(['roadmap.paper']), aim: 'follow' })
+    const front = inFrontOf({ containers: canvas(['kehikot.paper']), aim: 'follow' })
     expect(front.narrowed).toBe(true)
     expect(front.documents).toEqual([PARAGRAPH])
     expect(briefOfPicked(front)).toBe('paper')
@@ -50,35 +50,35 @@ describe('some picked out means the documents those show', () => {
   })
 
   test('two containers, two documents, in the canvas\'s order', () => {
-    const front = inFrontOf({ containers: canvas(['roadmap.paper', 'roadmap.references']), aim: 'follow' })
+    const front = inFrontOf({ containers: canvas(['kehikot.paper', 'kehikot.references']), aim: 'follow' })
     expect(front.documents).toEqual([PARAGRAPH, INTRO])
     expect(briefOfPicked(front)).toBe('paper and references · 2 documents')
   })
 
   test('a picked container showing no document is named, and an empty list says why', () => {
-    const front = inFrontOf({ containers: canvas(['roadmap.journeys']), aim: 'follow' })
+    const front = inFrontOf({ containers: canvas(['kehikot.journeys']), aim: 'follow' })
     expect(front.documents).toEqual([])
-    expect(front.quiet).toEqual(['roadmap.journeys'])
+    expect(front.quiet).toEqual(['kehikot.journeys'])
     expect(whyEmpty(front)).toBe(
       'journeys is picked out and shows no document, so there is no place here for a note to be about.',
     )
-    const two = inFrontOf({ containers: canvas(['roadmap.journeys', 'roadmap.notes']), aim: 'follow' })
+    const two = inFrontOf({ containers: canvas(['kehikot.journeys', 'kehikot.notes']), aim: 'follow' })
     expect(whyEmpty(two)).toBe(
       'journeys and notes are picked out and show no document, so there is no place here for a note to be about.',
     )
   })
 
   test('the way out ignores the picks', () => {
-    const front = inFrontOf({ containers: canvas(['roadmap.journeys']), aim: 'all' })
+    const front = inFrontOf({ containers: canvas(['kehikot.journeys']), aim: 'all' })
     expect(front.narrowed).toBe(false)
-    expect(front.picked).toEqual(['roadmap.journeys'])
+    expect(front.picked).toEqual(['kehikot.journeys'])
     expect(whyEmpty(front)).toBeNull()
   })
 })
 
 describe('the control in the header', () => {
   test('one group, following by default, with the count in the label', () => {
-    const [group] = aimOffer(canvas(['roadmap.paper']))
+    const [group] = aimOffer(canvas(['kehikot.paper']))
     expect(group?.id).toBe(AIM)
     expect(group?.fallback).toBe('follow')
     expect(group?.options[0]?.label).toBe('follow what is picked out (1 of 4 picked out)')
@@ -134,7 +134,7 @@ describe('an empty list says which of three empty states it is in', () => {
    * could not tell an empty chapter from a wrong address.
    */
   test('nothing aimed at: the picks show no document, and the sentence names them', () => {
-    const front = inFrontOf({ containers: [{ module: 'roadmap.paper', selected: true, documents: [] }], aim: 'follow' })
+    const front = inFrontOf({ containers: [{ module: 'kehikot.paper', selected: true, documents: [] }], aim: 'follow' })
     expect(whyEmpty(front)).toContain('paper is picked out and shows no document')
   })
 
@@ -151,7 +151,7 @@ describe('an empty list says which of three empty states it is in', () => {
   })
 
   test('and the three are three different sentences', () => {
-    const nothing = whyEmpty(inFrontOf({ containers: [{ module: 'roadmap.paper', selected: true, documents: [] }], aim: 'follow' }))
+    const nothing = whyEmpty(inFrontOf({ containers: [{ module: 'kehikot.paper', selected: true, documents: [] }], aim: 'follow' }))
     const resolves = saidOfEmpty({ opened: true, adrift: false, file: 'main.tex' })
     const unresolvable = saidOfEmpty({ opened: false, adrift: false, file: 'main.tex' })
     expect(new Set([nothing, resolves, unresolvable]).size).toBe(3)

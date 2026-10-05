@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
-import { within } from 'roadmap-module-protocol'
+import { within } from 'kehikot-module-protocol'
 
 /**
  * Where a note's document is, in the two spellings this program needs — and the

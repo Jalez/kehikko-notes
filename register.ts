@@ -2,7 +2,7 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { originFor, registerAt } from 'roadmap-module-protocol/serve'
+import { originFor, registerAt } from 'kehikot-module-protocol/serve'
 
 import { ID, PREFERRED_PORT } from './manifest.ts'
 
@@ -41,7 +41,7 @@ import { ID, PREFERRED_PORT } from './manifest.ts'
  *
  * The registry directory, the rule that the FILENAME carries the id, the shape
  * of the document, and the argument for each of them now live in
- * `roadmap-module-protocol/serve`. They were copied into fourteen repositories,
+ * `kehikot-module-protocol/serve`. They were copied into fourteen repositories,
  * this one included, with a note in each saying the copy was deliberate so the
  * directory could stand alone — and fourteen copies of one path is fourteen
  * chances to disagree by a character. Writing to the wrong directory is the

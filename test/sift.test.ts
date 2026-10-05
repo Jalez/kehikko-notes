@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { LIMITS, filtersSchema } from 'roadmap-module-protocol'
+import { LIMITS, filtersSchema } from 'kehikot-module-protocol'
 
 import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
 
@@ -16,7 +16,7 @@ import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
 
 describe('what the page offers to be narrowed by', () => {
   test('is a legal offer, by the protocol’s own reading of it', () => {
-    expect(filtersSchema.safeParse({ type: 'roadmap.filters', groups: offer(3) }).success).toBe(true)
+    expect(filtersSchema.safeParse({ type: 'kehikot.filters', groups: offer(3) }).success).toBe(true)
   })
 
   test('and stays legal when the count is a large one', () => {

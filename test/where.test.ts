@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, r
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 
-import { KEHIKOT_DIR } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR } from 'kehikot-module-protocol'
 
 import { resolveAll } from '../notes/anchor.ts'
 import { change, notesOf } from '../notes/keep.ts'

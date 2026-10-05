@@ -1,6 +1,6 @@
-import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'roadmap-module-protocol'
+import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 
-export const ID = 'roadmap.notes'
+export const ID = 'kehikot.notes'
 export const VERSION = '1.0.0'
 
 /**
@@ -9,7 +9,7 @@ export const VERSION = '1.0.0'
  *
  * It used to be said twice — `--port "${PORT:-7940}"` at the bottom of `run.sh`
  * and `Number(process.env.PORT ?? 7940)` in `register.ts` — with nothing keeping
- * the two honest, and a third copy of the number sitting in `~/.roadmap/modules`
+ * the two honest, and a third copy of the number sitting in `~/Library/Application Support/Kehikot/modules`
  * from whenever somebody last ran the second. Moving this app was two edits and
  * a thing to remember.
  *
@@ -21,7 +21,7 @@ export const VERSION = '1.0.0'
  * And it is a PREFERENCE, which is the part worth saying out loud: 7820 through
  * 7960 belong to the other modules on this machine, and if something else holds
  * 7940 when this starts then `serves()` moves to the next free port and rewrites
- * the registration to match — see `roadmap-module-protocol/serve`. A host reads
+ * the registration to match — see `kehikot-module-protocol/serve`. A host reads
  * the registry, so the registry is the thing that has to be true. This number is
  * only where to start looking.
  */
@@ -59,7 +59,7 @@ export const PREFERRED_PORT = 7940
  *   here points on a context, on a load, on a filter, or on any conclusion this
  *   app reached by itself. It points when a person presses a note, with the
  *   offsets its ANCHOR just verified rather than the ones the note was written
- *   with, and never otherwise. See the note on `point` in `wire/use-roadmap.ts`.
+ *   with, and never otherwise. See the note on `point` in `wire/use-kehikot.ts`.
  *
  *   There is no capability for CONSUMING context, and there should not be: a
  *   context is broadcast to every framed module, and a list of who may read one
@@ -92,7 +92,7 @@ export const PREFERRED_PORT = 7940
  *   than what the reader is pointing at, which is the one thing it must not do.
  *
  *   Its two filters are remembered, and by the host rather than here. They are
- *   offered over `roadmap.filters` and come back in `context.filters`, which is
+ *   offered over `kehikot.filters` and come back in `context.filters`, which is
  *   per container and survives an app quit — so `show resolved` is a property
  *   of the box a person arranged rather than of this module, and it arrives in
  *   the greeting before the first render instead of after it. That is the
@@ -116,7 +116,7 @@ export const PREFERRED_PORT = 7940
  * ## The mode, and why it is epic-scoped
  *
  * One mode, which becomes an ordinary tab in the mode row. `scope: 'epic'`
- * because an epic-scoped mode is the one that receives `roadmap.context` — and
+ * because an epic-scoped mode is the one that receives `kehikot.context` — and
  * the context is where `passage` lives. A `global` mode is never sent one,
  * which for this app would mean a container that can never learn what anybody is
  * pointing at. It also carries `projectPath`, which is what partitions the
