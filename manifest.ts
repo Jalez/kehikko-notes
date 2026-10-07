@@ -163,6 +163,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   id: ID,
   name: 'Notes',
   version: VERSION,
+  /* Where a host files this module in its list, most fitting first. */
+  tags: ['reading', 'writing'],
   summary:
     'Notes anchored to a place in a document — a file, a page, a byte range and the words that were there — narrowing as the reader narrows.',
   /**
