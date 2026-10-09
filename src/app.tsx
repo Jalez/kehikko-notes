@@ -1,8 +1,8 @@
 import { Plus } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { FOCUS_WHERE } from 'kehikot-module-protocol'
-import { useFocus } from 'kehikot-module-protocol/client/react'
+import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
 
 import { ID } from '../manifest.ts'
 import { aimOf, aimOffer, briefOfPicked, inFrontOf, merged, saidOfEmpty, whyEmpty, type Shown } from '../notes/aim.ts'
@@ -14,11 +14,11 @@ import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
 import { snappable } from '../notes/room.ts'
 
 import { Button } from '@/components/ui/button.tsx'
-import { edit, look, type Anchored, type Ask, type Change, type Looked } from '@/store/ask.ts'
+import { edit, knock, look, type Anchored, type Ask, type Change, type Failed, type Looked } from '@/store/ask.ts'
 import { Compose } from '@/view/compose.tsx'
 import { NoteRow, type NoteActions } from '@/view/note.tsx'
 import { useRoom } from '@/view/room.ts'
-import { Listening, NoProject, Nowhere, Trouble } from '@/view/screens.tsx'
+import { NO_STORE, Nowhere, Trouble } from '@/view/screens.tsx'
 import { useKehikot, type GotoHandler, type Passage } from '@/wire/use-kehikot.ts'
 
 /**
@@ -160,6 +160,8 @@ export function App() {
   }, [])
 
   const { where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point } = useKehikot(ID, onGoto)
+  /* How this page's own server last answered: `down` when nothing did, `stale` when it has restarted under this page. */
+  const server = useServerStanding()
 
   /**
    * The host's list of containers, inflated once from the string the wire
@@ -381,17 +383,17 @@ export function App() {
     void Promise.all(asks.map(look))
       .then((answers) => {
         if (!live) return
-        const refusal = answers.find((one): one is { error: string } => 'error' in one)
+        const refusal = answers.find((one): one is Failed => 'error' in one)
         if (refusal) {
+          /* Nothing answered, or this page is older than its server: the shared cover says so (see
+             `cover` below), and what was on screen stays where it was, hidden, for when it is back. */
+          if (refusal.kind !== 'refused') return
           setRefused(refusal.error)
           setLooked(null)
           return
         }
         setRefused(null)
         setLooked(merged(answers.filter((one): one is Looked => !('error' in one))))
-      })
-      .catch(() => {
-        if (live) setRefused('This app could not reach its own store.')
       })
     return () => {
       live = false
@@ -422,7 +424,9 @@ export function App() {
       setBusy(true)
       const answer = await edit({ ...change, projectPath })
       setBusy(false)
-      setRefused(answer.ok ? null : answer.error)
+      /* A write nothing answered is said by the cover, not by a red line that outlives it. The
+         draft is untouched either way: it is cleared only by a write that worked. */
+      setRefused(answer.ok || answer.kind !== 'refused' ? null : answer.error)
       setRound((was) => was + 1)
       return answer.ok
     },
@@ -658,20 +662,50 @@ export function App() {
     return () => watcher.disconnect()
   }, [room.snap, seen, showWithdrawn, withResolved])
 
-  if (where === 'listening') return <Listening />
-  /* Before every other screen, because it is the one that says there is no
-     store at all. `Nowhere` offers a press that widens to the project, and
-     offering it here would be offering to read a file that does not exist. */
-  if (!projectPath) return <NoProject unhosted={where === 'unhosted'} />
-  if (looked?.trouble) return <Trouble said={looked.trouble} />
-  if (!asks) return <Nowhere project={project} onEverything={() => setWiden('everything')} />
+  /*
+   * Every not-ready moment is the protocol's one cover.
+   *
+   * `notReady` is what the host's standing calls for — waiting, then unhosted, or hosted with no
+   * project folder — and it comes before every other screen because it is the one that says there
+   * is no store at all: `Nowhere` offers a press that widens to the project, and offering it here
+   * would be offering to read a file that does not exist. Nothing is mounted under those three.
+   *
+   * `down` and `stale` are about this app's own server, and they can arrive with a half-written
+   * note or reply on screen. So what was drawn STAYS MOUNTED under the cover, hidden: every return
+   * below goes through `covered`, which keeps one shape — the cover or nothing, then the content —
+   * so React never tears the rows down to draw the sentence.
+   *
+   * The cover is not given a height. This page reports its content's height to the host, and a
+   * full-frame cover would be this page asking for the height it was given.
+   */
+  const notReady = coverFor({ where, projectPath })
+  const cover: CoverState | null = server === 'stale' ? 'stale' : (notReady ?? (server === 'down' ? 'down' : null))
+  const covered = (content: ReactNode) => (
+    <>
+      {cover ? (
+        <Cover
+          state={cover}
+          name="Notes"
+          onRetry={() => void knock().then(() => setRound((was) => was + 1))}
+          detail={cover === 'unhosted' || cover === 'no-project' ? NO_STORE : null}
+        />
+      ) : null}
+      <div hidden={cover !== null} className={cover ? undefined : 'contents'}>
+        {content}
+      </div>
+    </>
+  )
+
+  if (notReady) return covered(null)
+  if (looked?.trouble) return covered(<Trouble said={looked.trouble} />)
+  if (!asks) return covered(<Nowhere project={project} onEverything={() => setWiden('everything')} />)
   /* The picks emptied it: say which containers are picked out and that they
      show no document. Not `Nowhere`, whose sentence is about nobody pointing
      — somebody may well be — and whose press widens to the project, which is
      not the way out of this. The way out is the `aim` control in the header. */
   const emptied = whyEmpty(front)
   if (emptied) {
-    return (
+    return covered(
       <div className="min-w-0 space-y-2 p-3">
         <p data-testid="narrowed-empty" className="text-xs text-muted-foreground">
           {emptied}
@@ -680,7 +714,7 @@ export function App() {
           Untick a container, pick out one that shows a document, or set this container’s aim to everything on this
           kehikko.
         </p>
-      </div>
+      </div>,
     )
   }
 
@@ -767,7 +801,7 @@ export function App() {
    * fit, and one whose owner did not is a box this page fills honestly instead
    * of overflowing.
    */
-  return (
+  return covered(
     <div className="relative flex h-dvh min-h-0 flex-col">
       <div ref={crown} className="min-w-0 shrink-0 px-2 pt-2 pb-1 @sm/container:px-3 @sm/container:pt-3">
         {/*
@@ -1019,7 +1053,7 @@ export function App() {
       </div>
 
       {room.compose === 'fill' ? compose : null}
-    </div>
+    </div>,
   )
 }
 

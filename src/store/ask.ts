@@ -1,3 +1,5 @@
+import { ask, type AskFailure } from 'kehikot-module-protocol/client'
+
 import type { Anchored } from '../../notes/anchor.ts'
 import type { Scope } from '../../notes/scope.ts'
 
@@ -13,6 +15,13 @@ import type { Scope } from '../../notes/scope.ts'
  * Every request below is an ordinary same-origin request: no preflight, no CORS
  * header offered to anybody, and no way for a page in another tab to make one
  * of them. The essay in `manifest.ts` is why that was worth the declaration.
+ *
+ * They go through the protocol's `ask`, which carries the page's write ticket in
+ * `x-module-ticket`, never throws, and turns every failure into one of three
+ * kinds with a sentence: the server said no (`refused`, its own words), nothing
+ * answered (`down`), or this page is older than its server (`stale` — the page
+ * reloads itself a moment later). `down` and `stale` are drawn by the shared
+ * cover in `app.tsx`, so `kind` rides along with every failure here.
  *
  * ## The types come from the server's own files, AS TYPES
  *
@@ -34,28 +43,6 @@ import type { Scope } from '../../notes/scope.ts'
  * module at all; the rule is per file, and those two files are kept that way on
  * purpose.
  */
-
-/**
- * The ticket, read once off the inert JSON island the document carries.
- *
- * Read at module load rather than per request, because it cannot change while
- * this document is open: it is minted per server process and printed into the
- * page. A missing island is an empty string rather than a throw — that is a
- * page served by something other than this app's own server, and the writes
- * will be refused with a sentence rather than the page failing to render.
- */
-function ticket(): string {
-  const island = typeof document === 'undefined' ? null : document.getElementById('ticket')
-  if (!island?.textContent) return ''
-  try {
-    const parsed: unknown = JSON.parse(island.textContent)
-    return typeof parsed === 'string' ? parsed : ''
-  } catch {
-    return ''
-  }
-}
-
-const TICKET = ticket()
 
 export type { Anchored, Scope }
 
@@ -110,24 +97,23 @@ export interface Looked {
   trouble: string | null
 }
 
-function query(ask: Ask): string {
-  const parts: string[] = []
-  const put = (key: string, value: string | number | null) => {
-    if (value === null || value === '') return
-    parts.push(`${key}=${encodeURIComponent(String(value))}`)
+function query(asked: Ask): Record<string, string | number | null> {
+  /* `project` is deliberately not sent: the server reads the folder, not the name. Empty values
+     are dropped, which `ask` does for `null` and this does for `''`. */
+  const put = (value: string | number | null) => (value === '' ? null : value)
+  return {
+    projectPath: put(asked.projectPath),
+    ...(asked.everything
+      ? { everything: 1 }
+      : { path: put(asked.path), page: asked.page, from: asked.from, to: asked.to }),
+    ...(asked.resolved ? { resolved: 1 } : {}),
   }
-  /* The path and not the name. The door opens a file with this; the name is a
-     label this page draws and nothing on the other side has a use for. */
-  put('projectPath', ask.projectPath)
-  if (ask.everything) parts.push('everything=1')
-  else {
-    put('path', ask.path)
-    put('page', ask.page)
-    put('from', ask.from)
-    put('to', ask.to)
-  }
-  if (ask.resolved) parts.push('resolved=1')
-  return parts.join('&')
+}
+
+/** A failure of either door: the sentence, and which of the three kinds it was. */
+export interface Failed {
+  error: string
+  kind: AskFailure
 }
 
 /**
@@ -139,23 +125,21 @@ function query(ask: Ask): string {
  * remedies, and this is a module whose whole argument is that those do not get
  * flattened.
  */
-export async function look(ask: Ask): Promise<Looked | { error: string }> {
-  const response = await fetch(`/api/notes?${query(ask)}`)
-  const body = (await response.json()) as Partial<Looked> & { ok?: unknown; error?: unknown }
-  if (body.ok === true) {
-    return {
-      said: typeof body.said === 'string' ? body.said : '',
-      scope: body.scope as Scope,
-      shown: Array.isArray(body.shown) ? body.shown : [],
-      adrift: Array.isArray(body.adrift) ? body.adrift : [],
-      elsewhere: typeof body.elsewhere === 'number' ? body.elsewhere : 0,
-      withdrawn: Array.isArray(body.withdrawn) ? body.withdrawn : [],
-      verified: body.verified === true,
-      opened: typeof body.opened === 'boolean' ? body.opened : null,
-      trouble: typeof body.trouble === 'string' ? body.trouble : null,
-    }
+export async function look(wanted: Ask): Promise<Looked | Failed> {
+  const asked = await ask<Partial<Looked>>('/api/notes', { query: query(wanted) })
+  if (!asked.ok) return { error: asked.error, kind: asked.kind }
+  const body = asked.body ?? {}
+  return {
+    said: typeof body.said === 'string' ? body.said : '',
+    scope: body.scope as Scope,
+    shown: Array.isArray(body.shown) ? body.shown : [],
+    adrift: Array.isArray(body.adrift) ? body.adrift : [],
+    elsewhere: typeof body.elsewhere === 'number' ? body.elsewhere : 0,
+    withdrawn: Array.isArray(body.withdrawn) ? body.withdrawn : [],
+    verified: body.verified === true,
+    opened: typeof body.opened === 'boolean' ? body.opened : null,
+    trouble: typeof body.trouble === 'string' ? body.trouble : null,
   }
-  return { error: typeof body.error === 'string' ? body.error : 'this app could not read its notes.' }
 }
 
 /**
@@ -201,7 +185,7 @@ export type Change =
  */
 export type Edit = Change & { projectPath: string }
 
-export type Answer = { ok: true; said: string; id: string } | { ok: false; error: string }
+export type Answer = { ok: true; said: string; id: string } | ({ ok: false } & Failed)
 
 /**
  * Every change the owner makes, through the one door the server decides at.
@@ -212,21 +196,22 @@ export type Answer = { ok: true; said: string; id: string } | { ok: false; error
  * no anchor verdict on it — which is the one thing every row here is for.
  */
 export async function edit(change: Edit): Promise<Answer> {
-  const response = await fetch('/api/note', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-notes-ticket': TICKET },
-    body: JSON.stringify(change),
-  })
-  const body = (await response.json()) as { ok?: unknown; said?: unknown; id?: unknown; error?: unknown }
-  if (body.ok === true) {
-    return {
-      ok: true,
-      said: typeof body.said === 'string' ? body.said : '',
-      id: typeof body.id === 'string' ? body.id : '',
-    }
-  }
+  const asked = await ask<{ said?: unknown; id?: unknown }>('/api/note', { body: change })
+  if (!asked.ok) return { ok: false, error: asked.error, kind: asked.kind }
   return {
-    ok: false,
-    error: typeof body.error === 'string' ? body.error : 'it did not work, and said nothing about why',
+    ok: true,
+    said: typeof asked.body?.said === 'string' ? asked.body.said : '',
+    id: typeof asked.body?.id === 'string' ? asked.body.id : '',
   }
+}
+
+/**
+ * Ask this app's own server whether it is there, for the cover's Try again.
+ *
+ * The answer is not read: `ask` itself records how the server is standing, which is what the cover
+ * is drawn from. `/healthz` rather than a notes read, because a pane with no document open has no
+ * read to repeat.
+ */
+export async function knock(): Promise<void> {
+  await ask('/healthz')
 }

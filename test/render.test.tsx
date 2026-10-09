@@ -1,12 +1,16 @@
-import { afterEach, describe, expect, test } from 'bun:test'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+
+import { resetServerStanding } from 'kehikot-module-protocol/client'
 
 import type { Anchored } from '../notes/anchor.ts'
 import { roomFor } from '../notes/room.ts'
 import type { Note } from '../notes/shape.ts'
 import { Compose } from '../src/view/compose.tsx'
 import { NoteRow } from '../src/view/note.tsx'
-import { NoProject, Nowhere } from '../src/view/screens.tsx'
+import { App } from '../src/app.tsx'
+import { edit } from '../src/store/ask.ts'
+import { NO_STORE, Nowhere } from '../src/view/screens.tsx'
 
 /**
  * The words on screen, asserted against the real components.
@@ -347,27 +351,167 @@ describe('the screens that are not a list of notes name why they are there', () 
     expect(document.body.textContent).toContain('nothing here is wrong')
     expect(screen.getByText('show every note in thesis')).toBeDefined()
   })
+})
 
-  /*
-   * The screen that replaced `Unhosted`, and the assertion that matters most is
-   * the ABSENCE of a button. There used to be one — "show every note" — reading
-   * a pile of unattributed notes out of a file beside the program. Neither the
-   * file nor the pile exists now, so a press could only show nothing or invent
-   * a folder to read, and this screen is the fix for exactly that.
-   */
-  test('no project says which fact is missing, where notes live, and offers no press', () => {
-    render(<NoProject unhosted={false} />)
-    expect(document.body.textContent).toContain('has not said where its project is')
-    expect(document.body.textContent).toContain('.kehikot/notes/notes.json')
-    expect(document.body.textContent).toContain('will not guess')
-    expect(screen.queryByRole('button')).toBeNull()
+/*
+ * The moments before there is anything to draw, each as the protocol's one shared cover, and the
+ * page's own two doors behind `ask()`: the ticket header a write carries, and what a refusal, a
+ * silent server and a page older than its server each look like.
+ */
+describe('the not-ready moments are the shared cover, and writes carry the shared ticket', () => {
+  const realFetch = globalThis.fetch
+  const PASSAGE = { path: '/w/thesis/chapters/bridge.tex', page: 3, section: null, from: 100, to: 140, quoted: 'A module is one origin or it is nothing.' }
+  const EMPTY = { ok: true, said: '', scope: { kind: 'passage' }, shown: [], adrift: [], elsewhere: 0, withdrawn: [], verified: true, opened: true, trouble: null }
+  let down = false
+  let write: () => Response = () => new Response(JSON.stringify({ ok: true, said: 'kept', id: 'n9' }), { status: 200 })
+  let calls: { url: string; init: RequestInit | undefined }[] = []
+
+  const settle = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))))
+  const greet = async (context: Record<string, unknown>) => {
+    await act(async () => {
+      window.postMessage({ type: 'kehikot.hello', protocol: 2, session: 's', state: null, context: { epic: null, theme: 'dark', ...context } }, '*')
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+  }
+  const cover = () => document.querySelector('[data-cover]')
+  const island = () => {
+    const ticket = document.createElement('script')
+    ticket.id = 'ticket'
+    ticket.type = 'application/json'
+    ticket.textContent = JSON.stringify('the-ticket')
+    document.body.append(ticket)
+    return ticket
+  }
+
+  beforeEach(() => {
+    down = false
+    calls = []
+    write = () => new Response(JSON.stringify({ ok: true, said: 'kept', id: 'n9' }), { status: 200 })
+    resetServerStanding()
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init })
+      if (down) throw new TypeError('Load failed')
+      if ((init?.method ?? 'GET') === 'POST') return write()
+      return new Response(JSON.stringify(String(url).startsWith('/healthz') ? { ok: true } : EMPTY), { status: 200 })
+    }) as unknown as typeof fetch
+  })
+  afterEach(() => {
+    globalThis.fetch = realFetch
+    document.documentElement.className = ''
+    document.getElementById('ticket')?.remove()
   })
 
-  test('unframed says the same thing, in the words of a page nobody is framing', () => {
-    render(<NoProject unhosted />)
-    expect(document.body.textContent).toContain('Nothing is framing this page')
-    expect(document.body.textContent).toContain('nowhere to write')
+  test('before anything has greeted the page it is waiting — never "no project" — and then unhosted', async () => {
+    render(<App />)
+    await settle(30)
+    expect(cover()?.getAttribute('data-cover')).toBe('waiting')
+    expect(document.body.textContent).toContain('Waiting for Kehikot')
+    expect(document.body.textContent).not.toContain('No project')
+    await settle(800)
+    expect(cover()?.getAttribute('data-cover')).toBe('unhosted')
+    expect(document.body.textContent).toContain('Nothing is framing this page — open Notes in Kehikot.')
+    /* Where notes live, and no press: there is no action from here that would not be a guess. */
+    expect(document.body.textContent).toContain(NO_STORE)
+    expect(NO_STORE).toContain('.kehikot/notes/notes.json')
+    expect(NO_STORE).toContain('nowhere to write')
     expect(screen.queryByRole('button')).toBeNull()
+    expect(calls).toHaveLength(0)
+  })
+
+  test('hosted with no project folder: no project, where notes live, no press, and nothing is asked', async () => {
+    render(<App />)
+    await greet({ project: 'thesis', projectPath: null, passage: PASSAGE })
+    expect(cover()?.getAttribute('data-cover')).toBe('no-project')
+    expect(document.body.textContent).toContain('No project is open')
+    expect(document.body.textContent).toContain('.kehikot/notes/notes.json')
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(calls).toHaveLength(0)
+    /* The host's theme is on the document either way. */
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+  })
+
+  test('hosted with a project and a passage there is no cover, and the read names the folder', async () => {
+    render(<App />)
+    await greet({ project: 'thesis', projectPath: '/w/thesis', passage: PASSAGE, theme: 'light' })
+    expect(cover()).toBeNull()
+    expect(document.documentElement.classList.contains('light')).toBe(true)
+    const read = calls.find((call) => call.url.startsWith('/api/notes'))
+    const asked = new URL(read?.url ?? '', 'http://x').searchParams
+    expect(asked.get('projectPath')).toBe('/w/thesis')
+    expect(asked.get('path')).toBe(PASSAGE.path)
+    expect(asked.get('page')).toBe('3')
+    expect(asked.get('from')).toBe('100')
+    /* A read carries no ticket: it is not a write. */
+    expect((read?.init?.headers as Record<string, string>)['x-module-ticket']).toBeUndefined()
+  })
+
+  const writeOne = async (words: string) => {
+    fireEvent.change(screen.getByLabelText('Write a note about this'), { target: { value: words } })
+    await act(async () => {
+      fireEvent.submit(screen.getByTestId('compose'))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+  }
+
+  test('a write carries the page’s ticket in x-module-ticket, and the project it is standing in', async () => {
+    island()
+    render(<App />)
+    await greet({ project: 'thesis', projectPath: '/w/thesis', passage: PASSAGE })
+    await writeOne('is this still true?')
+    const sent = calls.find((call) => call.init?.method === 'POST')
+    expect(sent?.url).toBe('/api/note')
+    const headers = sent?.init?.headers as Record<string, string>
+    expect(headers['x-module-ticket']).toBe('the-ticket')
+    expect(headers['x-notes-ticket']).toBeUndefined()
+    expect(JSON.parse(String(sent?.init?.body))).toMatchObject({ op: 'add', projectPath: '/w/thesis', path: PASSAGE.path, body: 'is this still true?' })
+    expect(screen.queryByTestId('refusal')).toBeNull()
+  })
+
+  test('a refused write hands on the server’s own sentence, and the page keeps what was typed', async () => {
+    write = () => new Response(JSON.stringify({ ok: false, error: 'a note needs a body' }), { status: 400 })
+    expect(await edit({ op: 'edit', id: 'n1', body: '', projectPath: '/w/thesis' })).toEqual({ ok: false, error: 'a note needs a body', kind: 'refused' })
+    /* "Not done, and why" at 200 is a refusal too. */
+    write = () => new Response(JSON.stringify({ ok: false, error: 'no such note' }), { status: 200 })
+    expect(await edit({ op: 'remove', id: 'gone', projectPath: '/w/thesis' })).toMatchObject({ ok: false, error: 'no such note', kind: 'refused' })
+
+    render(<App />)
+    await greet({ project: 'thesis', projectPath: '/w/thesis', passage: PASSAGE })
+    await writeOne('kept words')
+    /* The draft is cleared only by a write that worked, and a refusal is not a reason for a cover.
+       (The red sentence itself is cleared by the re-read that follows every write — as it was
+       before this file used `ask()`; see the pull request.) */
+    expect((screen.getByLabelText('Write a note about this') as HTMLTextAreaElement).value).toBe('kept words')
+    expect(cover()).toBeNull()
+  })
+
+  test('a write refused for the ticket is a page older than its server: the stale cover, nothing unmounted', async () => {
+    write = () => new Response(JSON.stringify({ ok: false, error: 'old page', refused: 'ticket' }), { status: 403 })
+    render(<App />)
+    await greet({ project: 'thesis', projectPath: '/w/thesis', passage: PASSAGE })
+    await writeOne('kept words')
+    expect(cover()?.getAttribute('data-cover')).toBe('stale')
+    expect(document.body.textContent).toContain('This page is older than its server')
+    expect((screen.getByLabelText('Write a note about this') as HTMLTextAreaElement).value).toBe('kept words')
+  })
+
+  test('its own server not answering: the down cover over the kept draft, and Try again brings it back', async () => {
+    render(<App />)
+    await greet({ project: 'thesis', projectPath: '/w/thesis', passage: PASSAGE })
+    down = true
+    await writeOne('kept words')
+    expect(cover()?.getAttribute('data-cover')).toBe('down')
+    expect(document.body.textContent).toContain('Notes’ own server is not answering.')
+    /* Hidden, not gone: the words somebody typed are still in the box under the cover. */
+    const box = screen.getByLabelText('Write a note about this') as HTMLTextAreaElement
+    expect(box.value).toBe('kept words')
+    expect(box.closest('[hidden]')).not.toBeNull()
+    down = false
+    await act(async () => {
+      fireEvent.click(within(cover() as HTMLElement).getByRole('button', { name: 'Try again' }))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    expect(cover()).toBeNull()
+    expect((screen.getByLabelText('Write a note about this') as HTMLTextAreaElement).value).toBe('kept words')
   })
 })
 
