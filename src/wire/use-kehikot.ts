@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { FilterChoice, FilterGroup, ModuleContext } from 'kehikot-module-protocol'
+import { sameParts, type EpicPart, type FilterChoice, type FilterGroup, type ModuleContext } from 'kehikot-module-protocol'
 
 import { connect, type Connection, type HostEvents } from 'kehikot-module-protocol/client'
 
@@ -129,6 +129,15 @@ export interface Kehikot {
    * older client strips the field before this page sees it.
    */
   containers: string
+  /** The open epic's slug, or null. Read for one thing: which paper a part's files are files of. */
+  epic: string | null
+  /**
+   * `context.parts`: every part of the open epic, the ones a person ticked in
+   * the host's bar flagged. `[]` before any greeting and from a host that has
+   * never heard of parts — nothing picked, the whole epic. Kept by value, for
+   * the reason `passage` is: the same array until the list actually changes.
+   */
+  parts: EpicPart[]
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
   /**
@@ -195,6 +204,8 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
   const [passage, setPassage] = useState<Passage | null>(null)
   const [chosen, setChosen] = useState<FilterChoice>({})
   const [containers, setContainers] = useState('')
+  const [epic, setEpic] = useState<string | null>(null)
+  const [parts, setParts] = useState<EpicPart[]>([])
   const host = useRef<Connection | null>(null)
 
   /**
@@ -244,6 +255,8 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
       /* Flattened to a string on arrival, so the setter is a no-op when the
          canvas did not move — see `containers` above. */
       setContainers(flattenContainers((context as { containers?: unknown }).containers))
+      setEpic(context.epic ?? null)
+      setParts((was) => (sameParts(was, context.parts ?? []) ? was : (context.parts ?? [])))
     }
 
     /**
@@ -302,8 +315,8 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
   }, [])
 
   return useMemo(
-    () => ({ where, project, projectPath, passage, chosen, containers, resize, filters, point }),
-    [where, project, projectPath, passage, chosen, containers, resize, filters, point],
+    () => ({ where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point }),
+    [where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point],
   )
 }
 
