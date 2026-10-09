@@ -1,8 +1,8 @@
 import { Plus } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { FOCUS_WHERE } from 'kehikot-module-protocol'
-import { useFocus } from 'kehikot-module-protocol/client/react'
+import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
 
 import { ID } from '../manifest.ts'
 import { aimOf, aimOffer, briefOfPicked, inFrontOf, merged, saidOfEmpty, whyEmpty, type Shown } from '../notes/aim.ts'
@@ -14,11 +14,12 @@ import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
 import { snappable } from '../notes/room.ts'
 
 import { Button } from '@/components/ui/button.tsx'
-import { edit, look, type Anchored, type Ask, type Change, type Looked } from '@/store/ask.ts'
+import { keepDraft, readDraft, readDrafts, type Draft } from '@/store/held.ts'
+import { edit, knock, look, type Anchored, type Ask, type Change, type Failed, type Looked } from '@/store/ask.ts'
 import { Compose } from '@/view/compose.tsx'
 import { NoteRow, type NoteActions } from '@/view/note.tsx'
 import { useRoom } from '@/view/room.ts'
-import { Listening, NoProject, Nowhere, Trouble } from '@/view/screens.tsx'
+import { NO_STORE, Nowhere, Trouble } from '@/view/screens.tsx'
 import { useKehikot, type GotoHandler, type Passage } from '@/wire/use-kehikot.ts'
 
 /**
@@ -160,6 +161,8 @@ export function App() {
   }, [])
 
   const { where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point } = useKehikot(ID, onGoto)
+  /* How this page's own server last answered: `down` when nothing did, `stale` when it has restarted under this page. */
+  const server = useServerStanding()
 
   /**
    * The host's list of containers, inflated once from the string the wire
@@ -381,17 +384,17 @@ export function App() {
     void Promise.all(asks.map(look))
       .then((answers) => {
         if (!live) return
-        const refusal = answers.find((one): one is { error: string } => 'error' in one)
+        const refusal = answers.find((one): one is Failed => 'error' in one)
         if (refusal) {
+          /* Nothing answered, or this page is older than its server: the shared cover says so (see
+             `cover` below), and what was on screen stays where it was, hidden, for when it is back. */
+          if (refusal.kind !== 'refused') return
           setRefused(refusal.error)
           setLooked(null)
           return
         }
         setRefused(null)
         setLooked(merged(answers.filter((one): one is Looked => !('error' in one))))
-      })
-      .catch(() => {
-        if (live) setRefused('This app could not reach its own store.')
       })
     return () => {
       live = false
@@ -413,6 +416,53 @@ export function App() {
    * `NoProject` — so this can only be reached by a bug, and it refuses rather
    * than sending a request the door would have to refuse for it.
    */
+  /*
+   * What was being typed, held across a reload of this page — see `store/held.ts`.
+   *
+   * A page that is older than its server reloads itself, on the Save press that found it out or on
+   * a read that did. So every box on this page writes what is in it as it changes, under the
+   * project and under exactly what it was aimed at: `new:<passage>` for a new note, and
+   * `reply:<note>` / `edit:<note>` in a row (`NoteRow` does those two itself). A draft is cleared
+   * by the write that kept it, by emptying the box, and by cancel.
+   */
+  const newTarget = passage ? `new:${passage.path}|${passage.page ?? ''}|${passage.from ?? ''}|${passage.to ?? ''}` : null
+  /* Which target the words in the composer are held under, so moving the reader moves the copy rather than leaving two. */
+  const draftAt = useRef<string | null>(null)
+  const [heldTick, setHeldTick] = useState(0)
+  const typed = useCallback(
+    (next: string) => {
+      setDraft(next)
+      if (!projectPath || !newTarget) return
+      if (draftAt.current && draftAt.current !== newTarget) keepDraft(projectPath, draftAt.current, null)
+      draftAt.current = newTarget
+      keepDraft(projectPath, newTarget, next.trim() ? { base: '', text: next, aim: `a new note on ${briefOf(scopeOf(passage))}${passage?.quoted ? ` — “${passage.quoted.slice(0, 80)}”` : ''}` } : null)
+    },
+    [projectPath, newTarget, passage],
+  )
+  /* A new note that was half written when the page reloaded comes back in the composer, open —
+     and only on the passage it was written about. Never over words already in the box. */
+  useEffect(() => {
+    if (!projectPath || !newTarget) return
+    const was = readDraft(projectPath, newTarget)
+    if (!was) return
+    setDraft((now) => {
+      if (now) return now
+      draftAt.current = newTarget
+      setWriting(true)
+      return was.text
+    })
+  }, [projectPath, newTarget])
+  const held = useMemo(
+    () =>
+      projectPath
+        ? {
+            read: (target: string) => readDraft(projectPath, target),
+            keep: (target: string, draft: Draft | null) => keepDraft(projectPath, target, draft),
+          }
+        : undefined,
+    [projectPath],
+  )
+
   const write = useCallback(
     async (change: Change) => {
       if (!projectPath) {
@@ -422,7 +472,9 @@ export function App() {
       setBusy(true)
       const answer = await edit({ ...change, projectPath })
       setBusy(false)
-      setRefused(answer.ok ? null : answer.error)
+      /* A write nothing answered is said by the cover, not by a red line that outlives it. The
+         draft is untouched either way: it is cleared only by a write that worked. */
+      setRefused(answer.ok || answer.kind !== 'refused' ? null : answer.error)
       setRound((was) => was + 1)
       return answer.ok
     },
@@ -443,12 +495,13 @@ export function App() {
   }, [])
   const actions: NoteActions = useMemo(
     () => ({
-      reply: (id, body) => void write({ op: 'reply', id, body }),
+      reply: (id, body) => write({ op: 'reply', id, body }),
       resolve: (id, done) => void write({ op: 'resolve', id, done }),
       /* Both refused by the door for a note lifted out of the source, and
          neither is drawn for one — see `NoteRow`. The door is the rule; the
          row is the courtesy. */
-      edit: (id, body) => void write({ op: 'edit', id, body }),
+      edit: (id, body) => write({ op: 'edit', id, body }),
+      held,
       hold,
       remove: (id) => void write({ op: 'remove', id }),
       /*
@@ -533,7 +586,7 @@ export function App() {
         : null,
       busy,
     }),
-    [write, busy, point, where, hold],
+    [write, busy, point, where, hold, held],
   )
 
   /**
@@ -658,20 +711,88 @@ export function App() {
     return () => watcher.disconnect()
   }, [room.snap, seen, showWithdrawn, withResolved])
 
-  if (where === 'listening') return <Listening />
-  /* Before every other screen, because it is the one that says there is no
-     store at all. `Nowhere` offers a press that widens to the project, and
-     offering it here would be offering to read a file that does not exist. */
-  if (!projectPath) return <NoProject unhosted={where === 'unhosted'} />
-  if (looked?.trouble) return <Trouble said={looked.trouble} />
-  if (!asks) return <Nowhere project={project} onEverything={() => setWiden('everything')} />
+  /*
+   * Every not-ready moment is the protocol's one cover.
+   *
+   * `notReady` is what the host's standing calls for — waiting, then unhosted, or hosted with no
+   * project folder — and it comes before every other screen because it is the one that says there
+   * is no store at all: `Nowhere` offers a press that widens to the project, and offering it here
+   * would be offering to read a file that does not exist. Nothing is mounted under those three.
+   *
+   * `down` and `stale` are about this app's own server, and they can arrive with a half-written
+   * note or reply on screen. So what was drawn STAYS MOUNTED under the cover, hidden: every return
+   * below goes through `covered`, which keeps one shape — the cover or nothing, then the content —
+   * so React never tears the rows down to draw the sentence.
+   *
+   * The cover is not given a height. This page reports its content's height to the host, and a
+   * full-frame cover would be this page asking for the height it was given.
+   */
+  const notReady = coverFor({ where, projectPath })
+  const cover: CoverState | null = server === 'stale' ? 'stale' : (notReady ?? (server === 'down' ? 'down' : null))
+  /*
+   * Held words whose target is not on screen: a note that is no longer in this list (removed, or
+   * the reader is somewhere else), or a new note written on a passage that is not the one in front.
+   * They are SHOWN, with what they were about, rather than restored somewhere they were not aimed
+   * or dropped. They go back into their own box the moment their target is on screen again.
+   */
+  const present = looked ? new Set([...looked.shown, ...looked.adrift, ...looked.withdrawn].map((one) => one.note.id)) : null
+  const strays = Object.entries(projectPath ? readDrafts(projectPath) : {}).filter(([target]) =>
+    target.startsWith('new:') ? target !== newTarget && target !== draftAt.current : present !== null && !present.has(target.replace(/^(reply|edit):/, '')),
+  )
+  void heldTick
+  const kept = strays.length ? (
+    <section data-testid="kept-words" className="min-w-0 space-y-1 px-2 pb-2 @sm/container:px-3">
+      <p className="min-w-0 text-[0.7rem] text-muted-foreground">
+        Typed here and not saved. What {strays.length === 1 ? 'it was' : 'they were'} written about is not on screen now, so{' '}
+        {strays.length === 1 ? 'it is' : 'they are'} kept here rather than put somewhere else:
+      </p>
+      {strays.map(([target, one]) => (
+        <div key={target} data-kept={target} className="min-w-0 rounded border border-border/60 p-1.5">
+          <p className="min-w-0 text-[0.65rem] text-muted-foreground">{one.aim}</p>
+          <p className="mt-1 min-w-0 whitespace-pre-wrap text-xs [overflow-wrap:anywhere]">{one.text}</p>
+          <Button
+            size="container"
+            variant="ghost"
+            onClick={() => {
+              if (projectPath) keepDraft(projectPath, target, null)
+              setHeldTick((was) => was + 1)
+            }}
+          >
+            discard
+          </Button>
+        </div>
+      ))}
+    </section>
+  ) : null
+
+  /* `inside`: the content is the full-height column and draws `kept` in its own scroller. */
+  const covered = (content: ReactNode, inside = false) => (
+    <>
+      {cover ? (
+        <Cover
+          state={cover}
+          name="Notes"
+          onRetry={() => void knock().then(() => setRound((was) => was + 1))}
+          detail={cover === 'unhosted' || cover === 'no-project' ? NO_STORE : null}
+        />
+      ) : null}
+      <div hidden={cover !== null} className={cover ? undefined : 'contents'}>
+        {content}
+      </div>
+      {cover === null && !inside ? kept : null}
+    </>
+  )
+
+  if (notReady) return covered(null)
+  if (looked?.trouble) return covered(<Trouble said={looked.trouble} />)
+  if (!asks) return covered(<Nowhere project={project} onEverything={() => setWiden('everything')} />)
   /* The picks emptied it: say which containers are picked out and that they
      show no document. Not `Nowhere`, whose sentence is about nobody pointing
      — somebody may well be — and whose press widens to the project, which is
      not the way out of this. The way out is the `aim` control in the header. */
   const emptied = whyEmpty(front)
   if (emptied) {
-    return (
+    return covered(
       <div className="min-w-0 space-y-2 p-3">
         <p data-testid="narrowed-empty" className="text-xs text-muted-foreground">
           {emptied}
@@ -680,7 +801,7 @@ export function App() {
           Untick a container, pick out one that shows a document, or set this container’s aim to everything on this
           kehikko.
         </p>
-      </div>
+      </div>,
     )
   }
 
@@ -726,6 +847,8 @@ export function App() {
       if (ok) {
         setDraft('')
         setWriting(false)
+        if (projectPath && draftAt.current) keepDraft(projectPath, draftAt.current, null)
+        draftAt.current = null
       }
     })
   }
@@ -738,9 +861,18 @@ export function App() {
       said={briefOf(shownScope)}
       busy={busy}
       draft={draft}
-      onDraft={setDraft}
+      onDraft={typed}
       onSubmit={submit}
-      onCancel={writing ? () => setWriting(false) : null}
+      onCancel={
+        writing
+          ? () => {
+              /* Cancel throws the HELD copy away on purpose. The box keeps its words, as it always has. */
+              if (projectPath && draftAt.current) keepDraft(projectPath, draftAt.current, null)
+              draftAt.current = null
+              setWriting(false)
+            }
+          : null
+      }
     />
   ) : null
 
@@ -767,7 +899,7 @@ export function App() {
    * fit, and one whose owner did not is a box this page fills honestly instead
    * of overflowing.
    */
-  return (
+  return covered(
     <div className="relative flex h-dvh min-h-0 flex-col">
       <div ref={crown} className="min-w-0 shrink-0 px-2 pt-2 pb-1 @sm/container:px-3 @sm/container:pt-3">
         {/*
@@ -871,6 +1003,7 @@ export function App() {
         className="min-h-0 min-w-0 flex-1 overflow-y-auto px-2 pb-2 @sm/container:px-3 @sm/container:pb-3"
       >
         <div ref={body} className="min-w-0 space-y-2">
+          {kept ? <div className="-mx-2 @sm/container:-mx-3">{kept}</div> : null}
           {refused ? (
             <p data-testid="refusal" className="min-w-0 text-xs text-adrift">
               {refused}
@@ -1019,7 +1152,8 @@ export function App() {
       </div>
 
       {room.compose === 'fill' ? compose : null}
-    </div>
+    </div>,
+    true,
   )
 }
 

@@ -1,4 +1,5 @@
 import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
+import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import { FILE } from './store.ts'
@@ -58,7 +59,19 @@ import { readerFor } from './notes/source.ts'
  * already open the page, and gating reads would only mean an agent's curl needs
  * a ticket to look at what `/mcp` hands over anyway.
  */
-export const TICKET = crypto.randomUUID()
+export const TICKET = mintTicket()
+
+/**
+ * What a write without the ticket is told. Carried by the protocol's `refuseTicket`, whose mark
+ * (`refused: 'ticket'`) is what lets this app's page tell "I am older than my server" — and reload
+ * itself — from any other refusal.
+ */
+const NO_TICKET =
+  'that press did not come from this app’s own page — or the page is from a previous run of this server, in which '
+  + 'case reloading the pane gives it the ticket this run minted.'
+
+/** What this process is built from and when it started; `doors()` says it wherever a build is said. */
+export const BUILD = establishBuild({ version: VERSION, dir: import.meta.dirname })
 
 /** The word a note is filed under when the page wrote it. */
 const OWNER = 'the owner, on this app’s own page'
@@ -650,12 +663,8 @@ function call(name: string, args: Record<string, unknown>): string {
   return out.said
 }
 
-/** A status and a document. Nothing here writes bytes; the adapter does that. */
-export interface Reply {
-  status: number
-  /** `null` means "answer with no body", which is what a notification gets. */
-  body: unknown
-}
+/** A status and a document. Nothing here writes bytes; the protocol's `doors()` does that. */
+export type { Reply }
 
 const ok = (body: unknown): Reply => ({ status: 200, body })
 const bad = (why: string, status = 400): Reply => ({ status, body: { ok: false, error: why } })
@@ -806,7 +815,8 @@ export function answer(
        above this check: an MCP client is not a browser, has no page to have been
        handed a ticket, and requiring one there would mean the door could never
        be opened by the thing it exists for. */
-    if (ticket !== TICKET) return bad('that press did not come from this app’s own page', 403)
+    const refused = refuseTicket(ticket, TICKET, NO_TICKET)
+    if (refused) return refused
     if (!body) return bad('that was not a request')
 
     if (path === '/api/note') {

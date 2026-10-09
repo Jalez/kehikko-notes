@@ -1,76 +1,39 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { sameParts, type EpicPart, type FilterChoice, type FilterGroup, type ModuleContext } from 'kehikot-module-protocol'
 
-import { connect, type Connection, type HostEvents } from 'kehikot-module-protocol/client'
+import type { HostEvents } from 'kehikot-module-protocol/client'
+import { useHost, type Where } from 'kehikot-module-protocol/client/react'
 
 /**
- * The bridge, as one React value.
+ * The bridge, as one React value — the protocol's `useHost`, and the three things this page needs
+ * on top of it.
  *
- * `kehikot-module-protocol/client` is the wire and knows no React; this is the
- * only file that turns messages into state, and it is deliberately the only
- * one. Two places driving "what can this page see" would eventually disagree.
+ * `useHost` is the listener: the greeting and its grace (`listening` → `unhosted` or `hosted`),
+ * the theme put on `<html>`, the flattened project / path / epic, `passage.set`, a page that
+ * reloads itself when it is older than its server. None of that is typed out here any more.
  *
- * ## What used to be underneath this
+ * ## What stays here, and why
  *
- * `wire/host.ts` and `wire/mailbox.ts` — 418 lines, near-identical to the copy
- * in three sibling modules — are one import now. Nothing this page says on the
- * wire changed and no field starts or stops arriving: this copy already passed
- * the context through whole rather than rebuilding it from a list of named
- * fields.
+ * `useHost` hands back each context's `passage`, `filters`, `parts` and `containers` by the
+ * IDENTITY the host sent them with, and a host builds every one of those afresh on every context —
+ * after every change anywhere on the canvas, about every two seconds. In this page each of them is
+ * a dependency of the memo that decides what to ask this app's own store, so a fresh identity with
+ * the same contents means re-asking the store for the same notes several times a second. So:
  *
- * The `goto` backstop stays at 500ms. That is worth a sentence, because there
- * are two lineages of this number in the family — 500 and 900 — and this
- * module has always been on the shorter one, whatever a grouping written from
- * memory says. It is the client's default, so it needed no option.
- *
- * This hook survives on top of the core client rather than being replaced by
- * `…/client/react`, because of the passage comparison below: a generic hook
- * handing back the whole context would push a fresh object identity downstream
- * every couple of seconds, which here means re-asking this app's own store for
- * the same notes several times a second.
- *
- * ## What this hook holds, which is nearly nothing
- *
- * Three facts and a theme. Which project the reader is in, where that project
- * is on disk, and where in a document they are pointing. Everything else the
- * container shows comes from this app's own store, over its own `/api`; the one
- * thing ever ASKED of the host is `passage.set`, when a person presses a note.
- * Everything this container draws comes out of a context it was handed.
+ * - `passage`, `chosen` and `parts` are **settled**: the previous object is handed on again while
+ *   the new one says the same thing (`same`, `agrees`, the protocol's `sameParts`).
+ * - `containers` is **one JSON string** of only what this page reads, so "did the canvas move" is a
+ *   string comparison. See the field below.
  *
  * ## The passage is handed on whole and never remembered
  *
- * The one rule with teeth: `passage` is applied on every context, including
- * when it is null, and the page never keeps the last one. A container that held onto
- * the last passage would go on showing the notes on a chapter the reader closed
- * ten minutes ago — indistinguishable, on screen, from the chapter still being
- * open. The protocol makes the field nullable precisely so that "no document"
- * is a state a module can move INTO, and this hook is where that promise is
- * either kept or quietly broken.
- *
- * ## The grace, and why there is one
- *
- * A page cannot know at load whether it is framed. It has to wait to find out,
- * because the greeting arrives when the host is ready rather than when we are,
- * and a page that concluded "nobody is there" in the first frame would say so
- * and then be greeted a moment later — the reader would see the standalone
- * paragraph flash past and be replaced, which teaches them that paragraph is
- * noise. So there is a `listening` state with its own words, it lasts under a
- * second, and only then does the page say the harder thing.
- *
- * It is not a spinner. It says what it is waiting for.
+ * The one rule with teeth: `passage` follows every context, including when it is null, and the
+ * page never keeps the last one. A container that held onto the last passage would go on showing
+ * the notes on a chapter the reader closed ten minutes ago — indistinguishable, on screen, from
+ * the chapter still being open. Settling compares; it does not remember.
  */
-const GREETING_GRACE_MS = 700
-
-/**
- * Whether anything is framing this page, in the three states that matter.
- *
- * Three rather than a boolean, because "we have not heard yet" is not "nobody
- * is there": one lasts under a second and the other is the standalone case this
- * app is built to work in. Drawing the second while in the first is the flicker
- * the grace above exists to prevent.
- */
-export type Where = 'listening' | 'unhosted' | 'hosted'
+export type { Where }
 
 /** A passage, as the context carries one. */
 export type Passage = NonNullable<ModuleContext['passage']>
@@ -137,7 +100,7 @@ export interface Kehikot {
    * never heard of parts — nothing picked, the whole epic. Kept by value, for
    * the reason `passage` is: the same array until the list actually changes.
    */
-  parts: EpicPart[]
+  parts: readonly EpicPart[]
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
   /**
@@ -193,132 +156,38 @@ export interface Kehikot {
  * Handed in rather than handled here, because the answer depends on what is on
  * screen, and that is the view's business. The contract is the protocol's:
  * `answer` must be called, and calling it late is the same as not calling it —
- * see the backstop in `host.ts`.
+ * see `GOTO_BACKSTOP_MS` in the protocol's client.
  */
 export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
 export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
-  const [where, setWhere] = useState<Where>('listening')
-  const [project, setProject] = useState<string | null>(null)
-  const [projectPath, setProjectPath] = useState<string | null>(null)
-  const [passage, setPassage] = useState<Passage | null>(null)
-  const [chosen, setChosen] = useState<FilterChoice>({})
-  const [containers, setContainers] = useState('')
-  const [epic, setEpic] = useState<string | null>(null)
-  const [parts, setParts] = useState<EpicPart[]>([])
-  const host = useRef<Connection | null>(null)
-
-  /**
-   * The handler, held in a ref and read at the moment a `goto` arrives.
-   *
-   * The view rebuilds this function whenever the rows change, and connecting to
-   * the window again on every render would mean a torn-down listener during the
-   * one millisecond a host chose to greet in. So the listener is established
-   * once and always calls the newest handler.
-   */
-  const goto = useRef(onGoto)
-  goto.current = onGoto
-
-  useEffect(() => {
-    /**
-     * What the greeting and every later context both do.
-     *
-     * The theme is applied here rather than in a component, because it is a
-     * fact about the document rather than about any part of it: the host says
-     * light or dark and the root element carries it. `light` is set explicitly
-     * as well as `dark`, so that a host asking for light over a machine set to
-     * dark actually gets it — see the media query in `index.css`.
-     */
-    const arrived = (context: ModuleContext) => {
-      const root = document.documentElement
-      root.classList.toggle('dark', context.theme === 'dark')
-      root.classList.toggle('light', context.theme === 'light')
-
-      setWhere('hosted')
-      setProject(context.project ?? null)
-      setProjectPath(context.projectPath ?? null)
-      /*
-       * Compared before it is written, because it is an OBJECT.
-       *
-       * A context arrives after every change anywhere on the canvas, and a
-       * fresh `{path, page, from, to, quoted}` with identical contents every two
-       * seconds would be a new identity in every memo downstream — which here
-       * means re-asking this app's own store for the same list of notes several
-       * times a second. The strings are compared rather than the references
-       * because the host builds a new object each time whatever happens.
-       */
-      setPassage((was) => (same(was, context.passage ?? null) ? was : (context.passage ?? null)))
-      /* Compared before it is written, and for the reason directly above: this
-         is a record rebuilt by the host on every context, and a fresh identity
-         here re-asks this app's store for the same list of notes. */
-      setChosen((was) => (agrees(was, context.filters ?? {}) ? was : (context.filters ?? {})))
-      /* Flattened to a string on arrival, so the setter is a no-op when the
-         canvas did not move — see `containers` above. */
-      setContainers(flattenContainers((context as { containers?: unknown }).containers))
-      setEpic(context.epic ?? null)
-      setParts((was) => (sameParts(was, context.parts ?? []) ? was : (context.parts ?? [])))
-    }
-
-    /**
-     * The connection is stored BEFORE it is told to listen, and the order is
-     * the whole of a bug that made a sibling module hang forever.
-     *
-     * `listen()` subscribes to the mailbox, and the mailbox replays what has
-     * already arrived SYNCHRONOUSLY, inside that call. The greeting almost
-     * always arrives before React mounts — that is the entire reason the mailbox
-     * exists — so `onHello` fires on that line, and anything reading
-     * `host.current` before the assignment finds null and quietly does nothing.
-     *
-     * Worse, it works often enough to look fine. When the host happens to greet
-     * after this effect returns — a slow module, a reload, a busy machine — the
-     * assignment has already happened and everything behaves. A race whose good
-     * outcome is the common one is the kind that ships.
-     *
-     * What stood here was a box that caught the too-early arrival and replayed
-     * it once the assignment was done — this module's copy of a workaround
-     * every module in the family wrote for itself. `connect` and `listen` are
-     * two calls now, so the order is three plain lines: build, store, listen.
-     */
-    const live = connect(id, {
-      onHello: (context) => arrived(context),
-      onContext: (context) => arrived(context),
-      onGoto: (message, answer) => goto.current(message, answer),
-    })
-    host.current = live
-    live.listen()
-
-    const grace = setTimeout(() => {
-      setWhere((was) => (was === 'listening' ? 'unhosted' : was))
-    }, GREETING_GRACE_MS)
-
-    return () => {
-      clearTimeout(grace)
-      live.stop()
-      /* Cleared only if it is still ours: under StrictMode the second mount has
-         already assigned its own connection by the time some cleanups run. */
-      if (host.current === live) host.current = null
-    }
-  }, [id])
-
-  const resize = useCallback((height: number) => host.current?.resize(height), [])
-
-  /* Sent unconditionally: a page with no host posts into nothing, which costs
-     nothing, and a page that checked first would have to know whether the
-     greeting has arrived yet — which is exactly the race the client's own
-     replay exists to end. */
-  const filters = useCallback((groups: FilterGroup[]) => host.current?.filters(groups), [])
-
-  const point = useCallback((pointed: Passage | null) => {
-    const conversation = host.current
-    if (!conversation) return
-    void conversation.request('passage.set', { passage: pointed }).catch(() => {})
-  }, [])
+  const host = useHost(id, { onGoto })
+  const passage = useSettled<Passage | null>(host.passage, same)
+  const chosen = useSettled<FilterChoice>(host.chosen, agrees)
+  const parts = useSettled<readonly EpicPart[]>(host.parts, sameParts)
+  /* A string, which is what makes it stable: an unmoved canvas flattens to the same characters,
+     and equal strings are the same dependency. */
+  const containers = flattenContainers(host.containers)
+  const { where, project, projectPath, epic, resize, filters, point } = host
 
   return useMemo(
     () => ({ where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point }),
     [where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point],
   )
 }
+
+/**
+ * The previous value, for as long as the next one says the same thing.
+ *
+ * A ref written during render, which is safe here because it is idempotent: rendering twice with
+ * the same input leaves the same value held.
+ */
+function useSettled<T>(next: T, equal: (a: T, b: T) => boolean): T {
+  const held = useRef(next)
+  if (held.current !== next && !equal(held.current, next)) held.current = next
+  return held.current
+}
+
 
 /**
  * The host's containers as one string, or `''`.

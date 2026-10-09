@@ -1,5 +1,7 @@
 import { Check, Pencil, Trash2, Undo2 } from 'lucide-react'
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+
+import type { Draft } from '@/store/held.ts'
 
 import type { Anchored } from '@/store/ask.ts'
 import { Arm } from '@/view/arm.tsx'
@@ -150,7 +152,8 @@ function clamped(lines: number | null, off: boolean): CSSProperties | undefined 
 }
 
 export interface NoteActions {
-  reply: (id: string, body: string) => void
+  /** Resolves to whether it was kept. A row closes its box, and forgets the held words, only on a yes. */
+  reply: (id: string, body: string) => void | Promise<boolean>
   resolve: (id: string, done: boolean) => void
   reanchor: (one: Anchored) => void
   /**
@@ -164,7 +167,12 @@ export interface NoteActions {
    */
   point: ((one: Anchored) => void) | null
   /** Rewrite the words. Typed notes only; a derived note's words are in the `.tex`. */
-  edit: (id: string, body: string) => void
+  edit: (id: string, body: string) => void | Promise<boolean>
+  /**
+   * The words typed into this row's boxes, held across a reload of the page (`store/held.ts`), by
+   * target: `reply:<note id>` and `edit:<note id>`. Absent in a test that draws one row.
+   */
+  held?: { read: (target: string) => Draft | null; keep: (target: string, draft: Draft | null) => void }
   /** Gone for good, replies and all. Typed notes only, and only ever from behind `Arm`. */
   remove: (id: string) => void
   /**
@@ -174,6 +182,17 @@ export interface NoteActions {
    */
   hold?: (id: string, held: boolean) => void
   busy: boolean
+}
+
+/** A held rewrite counts only if the person changed it: an untouched one loses to whatever the store holds now. */
+function changed(held: Draft | null): Draft | null {
+  return held && held.text !== held.base && held.text.trim() ? held : null
+}
+
+/** A few words of something, for naming it. */
+function brief(words: string, most = 60): string {
+  const one = words.replace(/\s+/g, ' ').trim()
+  return one.length > most ? `${one.slice(0, most - 1)}…` : one
 }
 
 export function NoteRow({
@@ -193,8 +212,17 @@ export function NoteRow({
   room?: Room
 }) {
   const { note, anchor } = one
-  const [replying, setReplying] = useState(false)
-  const [draft, setDraft] = useState('')
+  /*
+   * A reply or a rewrite somebody was in the middle of when this page reloaded comes back IN ITS
+   * BOX, open, under the note it was written about — the id is in the key, so it cannot arrive
+   * under another. A rewrite that was never changed from what it started as is not a draft at all.
+   */
+  const heldReply = useRef(actions.held?.read(`reply:${note.id}`) ?? null).current
+  const heldEdit = useRef(changed(actions.held?.read(`edit:${note.id}`) ?? null)).current
+  const keep = (kind: 'reply' | 'edit', text: string | null, base = '') =>
+    actions.held?.keep(`${kind}:${note.id}`, text === null || !text.trim() || text === base ? null : { base, text, aim: `${kind === 'reply' ? 'a reply to' : 'a rewrite of'} “${brief(note.body)}”` })
+  const [replying, setReplying] = useState(heldReply !== null)
+  const [draft, setDraft] = useState(heldReply?.text ?? '')
   /**
    * Whether this row has been opened.
    *
@@ -206,7 +234,7 @@ export function NoteRow({
    * there is no such container any more — `room.bodyLines` caps a body at every
    * size, so every row is a prefix of itself and every row opens. See `MOST`.
    */
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(heldReply !== null || heldEdit !== null)
   /**
    * Whether what this app used to make of the same annotation is shown.
    *
@@ -223,7 +251,10 @@ export function NoteRow({
    * reason: a person fixing a typo in one note has not asked to lose the
    * reply they were halfway through on another.
    */
-  const [rewriting, setRewriting] = useState<string | null>(null)
+  const [rewriting, setRewriting] = useState<string | null>(heldEdit?.text ?? null)
+  /* What the note said when the rewrite was begun. When that is no longer what it says, somebody
+     has written since, and saving would replace THEIR words — which is said, not done silently. */
+  const [rewritingFrom, setRewritingFrom] = useState<string | null>(heldEdit?.base ?? null)
   /* In somebody's hands while any of the three is true, and said to the page
      so that a tick elsewhere cannot take the row — and a half-typed reply —
      away. Let go when the row goes for any other reason. */
@@ -457,7 +488,13 @@ export function NoteRow({
               disabled={actions.busy}
               onClick={() => {
                 setOpen(true)
-                setRewriting((was) => (was === null ? note.body : null))
+                if (rewriting === null) {
+                  setRewriting(note.body)
+                  setRewritingFrom(note.body)
+                } else {
+                  setRewriting(null)
+                  keep('edit', null)
+                }
               }}
             >
               <Pencil aria-hidden className="size-3.5" />
@@ -557,21 +594,42 @@ export function NoteRow({
             event.preventDefault()
             const body = rewriting.trim()
             if (!body || body === note.body) return
-            actions.edit(note.id, body)
-            setRewriting(null)
+            /* Closed, and the held words forgotten, only once the store has said it kept them. */
+            void Promise.resolve(actions.edit(note.id, body)).then((kept) => {
+              if (kept === false) return
+              setRewriting(null)
+              keep('edit', null)
+            })
           }}
         >
           <textarea
             aria-label={`Rewrite ${note.id}`}
             className="min-h-14 w-full min-w-0 rounded border bg-background p-1.5 text-sm"
             value={rewriting}
-            onChange={(event) => setRewriting(event.target.value)}
+            onChange={(event) => {
+              setRewriting(event.target.value)
+              keep('edit', event.target.value, rewritingFrom ?? note.body)
+            }}
           />
+          {rewritingFrom !== null && rewritingFrom !== note.body ? (
+            <p data-testid="rewrite-stale" className="mt-1 min-w-0 text-[0.7rem] text-adrift">
+              This note was changed after these words were typed. It now says: “{brief(note.body, 160)}” — saving
+              replaces that.
+            </p>
+          ) : null}
           <div className="mt-1 flex flex-wrap gap-1">
             <Button size="container" type="submit" disabled={actions.busy || !rewriting.trim() || rewriting.trim() === note.body}>
               save
             </Button>
-            <Button size="container" variant="ghost" type="button" onClick={() => setRewriting(null)}>
+            <Button
+              size="container"
+              variant="ghost"
+              type="button"
+              onClick={() => {
+                setRewriting(null)
+                keep('edit', null)
+              }}
+            >
               cancel
             </Button>
           </div>
@@ -708,7 +766,15 @@ export function NoteRow({
           presses was ever going to be used on. */}
       {open || room.actions ? (
         <div className="mt-1.5 flex flex-wrap gap-1">
-          <Button size="container" variant="ghost" onClick={() => setReplying((was) => !was)}>
+          <Button
+            size="container"
+            variant="ghost"
+            onClick={() => {
+              /* Cancel is throwing the held copy away on purpose; the box keeps what it had, as before. */
+              if (replying) keep('reply', null)
+              setReplying((was) => !was)
+            }}
+          >
             {replying ? 'cancel' : 'reply'}
           </Button>
           <Button
@@ -774,16 +840,22 @@ export function NoteRow({
           onSubmit={(event) => {
             event.preventDefault()
             if (!draft.trim()) return
-            actions.reply(note.id, draft.trim())
-            setDraft('')
-            setReplying(false)
+            void Promise.resolve(actions.reply(note.id, draft.trim())).then((kept) => {
+              if (kept === false) return
+              setDraft('')
+              setReplying(false)
+              keep('reply', null)
+            })
           }}
         >
           <textarea
             aria-label={`Reply to ${note.id}`}
             className="min-h-14 w-full min-w-0 rounded border bg-background p-1.5 text-xs"
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value)
+              keep('reply', event.target.value)
+            }}
           />
           <Button size="container" type="submit" disabled={actions.busy || !draft.trim()}>
             leave reply
