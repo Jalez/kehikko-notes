@@ -1,5 +1,5 @@
 import { Check, Pencil, Trash2, Undo2 } from 'lucide-react'
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 
 import type { Anchored } from '@/store/ask.ts'
 import { Arm } from '@/view/arm.tsx'
@@ -167,6 +167,12 @@ export interface NoteActions {
   edit: (id: string, body: string) => void
   /** Gone for good, replies and all. Typed notes only, and only ever from behind `Arm`. */
   remove: (id: string) => void
+  /**
+   * Say that a person is in the middle of this note, or no longer is: it is
+   * opened, being replied to or being rewritten. What the page does with it is
+   * keep the row when the parts ticked in the host's bar would put it aside.
+   */
+  hold?: (id: string, held: boolean) => void
   busy: boolean
 }
 
@@ -218,6 +224,16 @@ export function NoteRow({
    * reply they were halfway through on another.
    */
   const [rewriting, setRewriting] = useState<string | null>(null)
+  /* In somebody's hands while any of the three is true, and said to the page
+     so that a tick elsewhere cannot take the row — and a half-typed reply —
+     away. Let go when the row goes for any other reason. */
+  const inHand = open || replying || rewriting !== null
+  const hold = actions.hold
+  useEffect(() => {
+    if (!hold || !inHand) return
+    hold(note.id, true)
+    return () => hold(note.id, false)
+  }, [hold, inHand, note.id])
   /**
    * What a row is holding back, and it is never nothing.
    *

@@ -1,8 +1,12 @@
 import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { FOCUS_WHERE } from 'kehikot-module-protocol'
+import { useFocus } from 'kehikot-module-protocol/client/react'
+
 import { ID } from '../manifest.ts'
 import { aimOf, aimOffer, briefOfPicked, inFrontOf, merged, saidOfEmpty, whyEmpty, type Shown } from '../notes/aim.ts'
+import { focusOn } from '../notes/focus.ts'
 import { keyOf, shownAt as heldAt, standing, type Pointed } from '../notes/pointed.ts'
 import { briefOf, fileOf, scopeOf, type Scope } from '../notes/scope.ts'
 import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
@@ -155,7 +159,7 @@ export function App() {
     )
   }, [])
 
-  const { where, project, projectPath, passage, chosen, containers, resize, filters, point } = useKehikot(ID, onGoto)
+  const { where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point } = useKehikot(ID, onGoto)
 
   /**
    * The host's list of containers, inflated once from the string the wire
@@ -425,6 +429,18 @@ export function App() {
     [projectPath],
   )
 
+  /* The notes a person is in the middle of, as the rows report them. Read by
+     the parts focus below, which never takes one of these away. */
+  const [inHand, setInHand] = useState<ReadonlySet<string>>(() => new Set())
+  const hold = useCallback((id: string, held: boolean) => {
+    setInHand((was) => {
+      if (was.has(id) === held) return was
+      const next = new Set(was)
+      if (held) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }, [])
   const actions: NoteActions = useMemo(
     () => ({
       reply: (id, body) => void write({ op: 'reply', id, body }),
@@ -433,6 +449,7 @@ export function App() {
          neither is drawn for one — see `NoteRow`. The door is the rule; the
          row is the courtesy. */
       edit: (id, body) => void write({ op: 'edit', id, body }),
+      hold,
       remove: (id) => void write({ op: 'remove', id }),
       /*
        * Re-anchoring takes the offsets this app FOUND and the note's own words.
@@ -516,7 +533,7 @@ export function App() {
         : null,
       busy,
     }),
-    [write, busy, point, where],
+    [write, busy, point, where, hold],
   )
 
   /**
@@ -542,7 +559,25 @@ export function App() {
    * identical offer on every render would be a message a second at every host
    * on the canvas for no change anybody could see.
    */
-  const preambleComments = looked?.withdrawn.length ?? 0
+  /*
+   * The parts of the epic ticked in the host's bar: of the notes the store
+   * answered with, the ones whose file a ticked part owns, and a sentence
+   * saying how many are not. Nothing ticked is `looked` itself. Everything
+   * DRAWN below reads `seen`; what is asked of the store, and whether an empty
+   * place opens the form, still read `looked`. See `notes/focus.ts`.
+   *
+   * A note in somebody's hands is not taken by a tick: the rows say which
+   * they are (`hold`), and the one this container pointed the canvas at is
+   * one more.
+   */
+  const focus = useFocus({ parts, epic })
+  const focused = useMemo(() => {
+    if (!looked) return null
+    const kept = pointed ? new Set([...inHand, pointed.id]) : inHand
+    return focusOn(looked, focus.parts, epic, kept, showWithdrawn)
+  }, [looked, focus, epic, inHand, pointed, showWithdrawn])
+  const seen = focused?.looked ?? null
+  const preambleComments = seen?.withdrawn.length ?? 0
   useEffect(() => {
     /* And the third group, only when the host lists containers, with its own
        count in its own label — see `aimOffer` in `notes/aim.ts`. */
@@ -568,7 +603,7 @@ export function App() {
     const inside = body.current
     if (!inside) return
     resize((crown.current?.offsetHeight ?? 0) + inside.scrollHeight + 16)
-  }, [resize, looked, refused, where, room])
+  }, [resize, seen, refused, where, room])
 
   /**
    * Which rows may carry a snap point, marked on the row itself.
@@ -621,7 +656,7 @@ export function App() {
     for (const row of rows()) watcher.observe(row)
     mark()
     return () => watcher.disconnect()
-  }, [room.snap, looked, showWithdrawn, withResolved])
+  }, [room.snap, seen, showWithdrawn, withResolved])
 
   if (where === 'listening') return <Listening />
   /* Before every other screen, because it is the one that says there is no
@@ -845,7 +880,7 @@ export function App() {
           {/* Which documents could not be opened, in a paragraph -- and not in a
               container with no room for a paragraph, where every row already
               carries the word `unchecked` in the one place a reader is looking. */}
-          {looked && !looked.verified && room.notices && (looked.shown.length > 0 || looked.adrift.length > 0) ? (
+          {seen && !seen.verified && room.notices && (seen.shown.length > 0 || seen.adrift.length > 0) ? (
             <p data-testid="unchecked" className="min-w-0 text-[0.7rem] text-muted-foreground">
               These documents could not be opened: each note shows the words it was written about, not what is there now.
             </p>
@@ -854,27 +889,35 @@ export function App() {
           {/* In the flow of the list where there is room for it, and over the whole
               frame where there is not -- in which case it is drawn at the bottom of
               this file rather than here, because it is over the heading too. */}
+          {/* What the ticked parts put aside. Its own line, never truncated:
+              it is the reason the list is shorter than it was, and the control
+              is not on this page — the tooltip says where it is. */}
+          {focused?.sentence ? (
+            <p data-testid="focus" title={FOCUS_WHERE} className="min-w-0 text-[0.7rem] text-muted-foreground">
+              {focused.sentence}
+            </p>
+          ) : null}
           {room.compose === 'inline' ? compose : null}
 
-          {looked?.shown.length ? (
+          {seen?.shown.length ? (
             <ul className="min-w-0">
-              {looked.shown.map((one) => (
+              {seen.shown.map((one) => (
                 <NoteRow key={one.note.id} one={one} actions={actions} pointed={pointed?.id === one.note.id} room={room} />
               ))}
             </ul>
           ) : (
             <p
               data-testid="empty"
-              data-opened={looked?.opened === false ? 'no' : undefined}
-              className={'min-w-0 text-xs ' + (looked?.opened === false ? 'text-adrift' : 'text-muted-foreground')}
+              data-opened={seen?.opened === false ? 'no' : undefined}
+              className={'min-w-0 text-xs ' + (seen?.opened === false ? 'text-adrift' : 'text-muted-foreground')}
             >
               {/* Three empty states, three sentences: nothing aimed at is
                   `whyEmpty` above; this is the other two, and which one it is
                   depends on whether the document could be opened at all. See
                   `saidOfEmpty`. */}
               {saidOfEmpty({
-                opened: looked?.opened ?? null,
-                adrift: Boolean(looked?.adrift.length),
+                opened: seen?.opened ?? null,
+                adrift: Boolean(seen?.adrift.length),
                 file: front.narrowed ? (front.documents[0] ? fileOf(front.documents[0].path) : null) : shownAt ? fileOf(shownAt.path) : null,
               })}
             </p>
@@ -889,13 +932,13 @@ export function App() {
            * has since changed — so it is shown at every scope, in a group of its own
            * so a reader can see it is a different kind of thing.
            */}
-          {looked?.adrift.length ? (
+          {seen?.adrift.length ? (
             <section data-testid="adrift-group" className="min-w-0 space-y-1">
               <p className="min-w-0 text-xs font-medium text-adrift">
-                {looked.adrift.length} note{looked.adrift.length === 1 ? '' : 's'} can no longer be placed in this document
+                {seen.adrift.length} note{seen.adrift.length === 1 ? '' : 's'} can no longer be placed in this document
               </p>
               <ul className="min-w-0">
-                {looked.adrift.map((one) => (
+                {seen.adrift.map((one) => (
                   <NoteRow key={one.note.id} one={one} actions={actions} pointed={pointed?.id === one.note.id} room={room} />
                 ))}
               </ul>
@@ -918,7 +961,7 @@ export function App() {
            * sentence saying what happened to it. Nothing was deleted and nothing
            * here could delete it.
            */}
-          {looked?.withdrawn.length ? (
+          {seen?.withdrawn.length ? (
             <section data-testid="withdrawn-group" className="min-w-0 space-y-1">
               {/*
                * The count, which stayed here when the press left.
@@ -937,7 +980,7 @@ export function App() {
                */}
               {showWithdrawn ? null : (
                 <p data-testid="preamble-hidden" className="min-w-0 text-[0.7rem] text-muted-foreground">
-                  {looked.withdrawn.length} preamble comment{looked.withdrawn.length === 1 ? '' : 's'} not shown.
+                  {seen.withdrawn.length} preamble comment{seen.withdrawn.length === 1 ? '' : 's'} not shown.
                 </p>
               )}
               {showWithdrawn ? (
@@ -947,7 +990,7 @@ export function App() {
                     No longer read as notes about the text.
                   </p>
                   <ul className="min-w-0">
-                    {looked.withdrawn.map((one) => (
+                    {seen.withdrawn.map((one) => (
                       <NoteRow key={one.note.id} one={one} actions={actions} pointed={pointed?.id === one.note.id} room={room} />
                     ))}
                   </ul>
@@ -956,9 +999,9 @@ export function App() {
             </section>
           ) : null}
 
-          {looked?.elsewhere ? (
+          {seen?.elsewhere ? (
             <p data-testid="elsewhere" className="min-w-0 text-[0.7rem] text-muted-foreground">
-              {looked.elsewhere} more on this document, outside this selection.
+              {seen.elsewhere} more on this document, outside this selection.
             </p>
           ) : null}
 

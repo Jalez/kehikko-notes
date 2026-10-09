@@ -214,7 +214,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * arrives whether or not it is here. See the essay on `reacts` in the
    * protocol's `manifest.ts`.
    */
-  reacts: ['passage', 'containers'],
+  reacts: ['passage', 'containers', 'parts'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['passage:set'],
