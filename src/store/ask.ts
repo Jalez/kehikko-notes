@@ -110,7 +110,7 @@ function query(asked: Ask): Record<string, string | number | null> {
   }
 }
 
-/** A failure of either door: the sentence, and which of the three kinds it was. */
+/** A failure of either door: the sentence, and which kind it was. */
 export interface Failed {
   error: string
   kind: AskFailure

@@ -133,7 +133,6 @@ cases. The argument is in `notes/where.ts`.
 | --- | --- |
 | `/app` | The page. Generated per request so the write ticket can reach it without a route of its own. |
 | `/.well-known/kehikot-module.json` | The manifest. |
-| `/.well-known/roadmap-module.json` | The same manifest in the spelling a host from before the rename asks for. |
 | `/healthz` | Whether the store reads, and how many notes are in it. |
 | `/mcp` | Five tools: `notes`, `add_note`, `reply_to_note`, `resolve_note`, `reanchor_note`. |
 | `/api/notes`, `/api/note` | The page's own read and write. Writes carry a per-process ticket printed into `/app`, and this door alone takes `edit` and `remove`. |
