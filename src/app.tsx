@@ -2,6 +2,7 @@ import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { FOCUS_WHERE } from 'kehikot-module-protocol'
+import { held, probeServer } from 'kehikot-module-protocol/client'
 import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
 
 import { ID } from '../manifest.ts'
@@ -14,8 +15,7 @@ import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
 import { snappable } from '../notes/room.ts'
 
 import { Button } from '@/components/ui/button.tsx'
-import { keepDraft, readDraft, readDrafts, type Draft } from '@/store/held.ts'
-import { edit, knock, look, type Anchored, type Ask, type Change, type Failed, type Looked } from '@/store/ask.ts'
+import { edit, look, type Anchored, type Ask, type Change, type Failed, type Looked } from '@/store/ask.ts'
 import { Compose } from '@/view/compose.tsx'
 import { NoteRow, type NoteActions } from '@/view/note.tsx'
 import { useRoom } from '@/view/room.ts'
@@ -70,6 +70,9 @@ import { useKehikot, type GotoHandler, type Passage } from '@/wire/use-kehikot.t
  * the heading stays — see `NoProject`, which is the only screen an unframed
  * page can reach now that a project's notes live in that project.
  */
+/** What somebody was typing, kept across a reload: by project, then by exactly what it was aimed at. */
+const drafts = held('kehikot.notes.drafts')
+
 export function App() {
   const [looked, setLooked] = useState<Looked | null>(null)
   const [refused, setRefused] = useState<string | null>(null)
@@ -417,7 +420,7 @@ export function App() {
    * than sending a request the door would have to refuse for it.
    */
   /*
-   * What was being typed, held across a reload of this page — see `store/held.ts`.
+   * What was being typed, held across a reload of this page — the protocol's `held`.
    *
    * A page that is older than its server reloads itself, on the Save press that found it out or on
    * a read that did. So every box on this page writes what is in it as it changes, under the
@@ -425,6 +428,8 @@ export function App() {
    * `reply:<note>` / `edit:<note>` in a row (`NoteRow` does those two itself). A draft is cleared
    * by the write that kept it, by emptying the box, and by cancel.
    */
+  /* The same object for the same project, so it is a dependency as it stands. */
+  const here = projectPath ? drafts.at(projectPath) : undefined
   const newTarget = passage ? `new:${passage.path}|${passage.page ?? ''}|${passage.from ?? ''}|${passage.to ?? ''}` : null
   /* Which target the words in the composer are held under, so moving the reader moves the copy rather than leaving two. */
   const draftAt = useRef<string | null>(null)
@@ -432,18 +437,17 @@ export function App() {
   const typed = useCallback(
     (next: string) => {
       setDraft(next)
-      if (!projectPath || !newTarget) return
-      if (draftAt.current && draftAt.current !== newTarget) keepDraft(projectPath, draftAt.current, null)
+      if (!here || !newTarget) return
+      if (draftAt.current && draftAt.current !== newTarget) here.keep(draftAt.current, null)
       draftAt.current = newTarget
-      keepDraft(projectPath, newTarget, next.trim() ? { base: '', text: next, aim: `a new note on ${briefOf(scopeOf(passage))}${passage?.quoted ? ` — “${passage.quoted.slice(0, 80)}”` : ''}` } : null)
+      here.keep(newTarget, { base: '', text: next, aim: `a new note on ${briefOf(scopeOf(passage))}${passage?.quoted ? ` — “${passage.quoted.slice(0, 80)}”` : ''}` })
     },
-    [projectPath, newTarget, passage],
+    [here, newTarget, passage],
   )
   /* A new note that was half written when the page reloaded comes back in the composer, open —
      and only on the passage it was written about. Never over words already in the box. */
   useEffect(() => {
-    if (!projectPath || !newTarget) return
-    const was = readDraft(projectPath, newTarget)
+    const was = newTarget ? here?.read(newTarget) : null
     if (!was) return
     setDraft((now) => {
       if (now) return now
@@ -451,17 +455,7 @@ export function App() {
       setWriting(true)
       return was.text
     })
-  }, [projectPath, newTarget])
-  const held = useMemo(
-    () =>
-      projectPath
-        ? {
-            read: (target: string) => readDraft(projectPath, target),
-            keep: (target: string, draft: Draft | null) => keepDraft(projectPath, target, draft),
-          }
-        : undefined,
-    [projectPath],
-  )
+  }, [here, newTarget])
 
   const write = useCallback(
     async (change: Change) => {
@@ -501,7 +495,7 @@ export function App() {
          neither is drawn for one — see `NoteRow`. The door is the rule; the
          row is the courtesy. */
       edit: (id, body) => write({ op: 'edit', id, body }),
-      held,
+      held: here,
       hold,
       remove: (id) => void write({ op: 'remove', id }),
       /*
@@ -586,7 +580,7 @@ export function App() {
         : null,
       busy,
     }),
-    [write, busy, point, where, hold, held],
+    [write, busy, point, where, hold, here],
   )
 
   /**
@@ -728,7 +722,7 @@ export function App() {
    * full-frame cover would be this page asking for the height it was given.
    */
   const notReady = coverFor({ where, projectPath })
-  const cover: CoverState | null = server === 'stale' ? 'stale' : (notReady ?? (server === 'down' ? 'down' : null))
+  const cover: CoverState | null = coverFor({ where, projectPath, server })
   /*
    * Held words whose target is not on screen: a note that is no longer in this list (removed, or
    * the reader is somewhere else), or a new note written on a passage that is not the one in front.
@@ -736,7 +730,7 @@ export function App() {
    * or dropped. They go back into their own box the moment their target is on screen again.
    */
   const present = looked ? new Set([...looked.shown, ...looked.adrift, ...looked.withdrawn].map((one) => one.note.id)) : null
-  const strays = Object.entries(projectPath ? readDrafts(projectPath) : {}).filter(([target]) =>
+  const strays = Object.entries(here?.all() ?? {}).filter(([target]) =>
     target.startsWith('new:') ? target !== newTarget && target !== draftAt.current : present !== null && !present.has(target.replace(/^(reply|edit):/, '')),
   )
   void heldTick
@@ -754,7 +748,7 @@ export function App() {
             size="container"
             variant="ghost"
             onClick={() => {
-              if (projectPath) keepDraft(projectPath, target, null)
+              here?.keep(target, null)
               setHeldTick((was) => was + 1)
             }}
           >
@@ -772,7 +766,7 @@ export function App() {
         <Cover
           state={cover}
           name="Notes"
-          onRetry={() => void knock().then(() => setRound((was) => was + 1))}
+          onRetry={() => void probeServer().then(() => setRound((was) => was + 1))}
           detail={cover === 'unhosted' || cover === 'no-project' ? NO_STORE : null}
         />
       ) : null}
@@ -847,7 +841,7 @@ export function App() {
       if (ok) {
         setDraft('')
         setWriting(false)
-        if (projectPath && draftAt.current) keepDraft(projectPath, draftAt.current, null)
+        if (draftAt.current) here?.keep(draftAt.current, null)
         draftAt.current = null
       }
     })
@@ -867,7 +861,7 @@ export function App() {
         writing
           ? () => {
               /* Cancel throws the HELD copy away on purpose. The box keeps its words, as it always has. */
-              if (projectPath && draftAt.current) keepDraft(projectPath, draftAt.current, null)
+              if (draftAt.current) here?.keep(draftAt.current, null)
               draftAt.current = null
               setWriting(false)
             }

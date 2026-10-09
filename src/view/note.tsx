@@ -1,7 +1,7 @@
 import { Check, Pencil, Trash2, Undo2 } from 'lucide-react'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 
-import type { Draft } from '@/store/held.ts'
+import type { Draft, HeldAt } from 'kehikot-module-protocol/client'
 
 import type { Anchored } from '@/store/ask.ts'
 import { Arm } from '@/view/arm.tsx'
@@ -169,10 +169,10 @@ export interface NoteActions {
   /** Rewrite the words. Typed notes only; a derived note's words are in the `.tex`. */
   edit: (id: string, body: string) => void | Promise<boolean>
   /**
-   * The words typed into this row's boxes, held across a reload of the page (`store/held.ts`), by
+   * The words typed into this row's boxes, held across a reload of the page (the protocol's `held`), by
    * target: `reply:<note id>` and `edit:<note id>`. Absent in a test that draws one row.
    */
-  held?: { read: (target: string) => Draft | null; keep: (target: string, draft: Draft | null) => void }
+  held?: Pick<HeldAt<Draft>, 'read' | 'keep'>
   /** Gone for good, replies and all. Typed notes only, and only ever from behind `Arm`. */
   remove: (id: string) => void
   /**
@@ -182,11 +182,6 @@ export interface NoteActions {
    */
   hold?: (id: string, held: boolean) => void
   busy: boolean
-}
-
-/** A held rewrite counts only if the person changed it: an untouched one loses to whatever the store holds now. */
-function changed(held: Draft | null): Draft | null {
-  return held && held.text !== held.base && held.text.trim() ? held : null
 }
 
 /** A few words of something, for naming it. */
@@ -218,9 +213,9 @@ export function NoteRow({
    * under another. A rewrite that was never changed from what it started as is not a draft at all.
    */
   const heldReply = useRef(actions.held?.read(`reply:${note.id}`) ?? null).current
-  const heldEdit = useRef(changed(actions.held?.read(`edit:${note.id}`) ?? null)).current
+  const heldEdit = useRef(actions.held?.read(`edit:${note.id}`) ?? null).current
   const keep = (kind: 'reply' | 'edit', text: string | null, base = '') =>
-    actions.held?.keep(`${kind}:${note.id}`, text === null || !text.trim() || text === base ? null : { base, text, aim: `${kind === 'reply' ? 'a reply to' : 'a rewrite of'} “${brief(note.body)}”` })
+    actions.held?.keep(`${kind}:${note.id}`, text === null ? null : { base, text, aim: `${kind === 'reply' ? 'a reply to' : 'a rewrite of'} “${brief(note.body)}”` })
   const [replying, setReplying] = useState(heldReply !== null)
   const [draft, setDraft] = useState(heldReply?.text ?? '')
   /**

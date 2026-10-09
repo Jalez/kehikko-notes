@@ -32,7 +32,7 @@ process.env.NOTES_ROOTS = home
 process.env.NOTES_AGENT = 'a test agent'
 
 const { answer, BUILD, MANIFEST, TICKET } = await import('../doors.ts')
-const { through } = await import('./through-doors.ts')
+const { doorsFetch } = await import('kehikot-module-protocol/serve')
 
 /** The id `add_note` reports back, so nothing here has to guess one out of prose. */
 function idOf(said: string): string {
@@ -358,42 +358,46 @@ describe('the page’s own door', () => {
    * Through the protocol's doors, as `vite.config.ts` mounts them: the header is `x-module-ticket`
    * and the element is `#ticket`, and the page and the server moved to those names together.
    */
-  const DOORS = { manifest: MANIFEST, answer, build: BUILD, page: { title: 'Notes', ticket: TICKET } }
+  const doors = doorsFetch({ manifest: MANIFEST, answer, build: BUILD, page: { title: 'Notes', ticket: TICKET } })
+  const through = async (method: string, url: string, { body, headers }: { body?: unknown; headers?: Record<string, string> } = {}) => {
+    const sent = (await doors(new Request(`http://127.0.0.1${url}`, { method, headers, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) })))!
+    return { status: sent.status, headers: sent.headers, json: (await sent.clone().json().catch(() => null)) as Record<string, unknown>, text: await sent.text() }
+  }
   const NOTE = { op: 'add', projectPath: project, path: CHAPTER, page: 1, from: FROM, to: TO, quoted: 'A module is one origin or it is nothing.', body: 'through the doors' }
 
   test('a write carrying x-module-ticket goes through the doors', async () => {
-    const sent = await through(DOORS, 'POST', '/api/note', { body: NOTE, headers: { 'x-module-ticket': TICKET } })
+    const sent = await through('POST', '/api/note', { body: NOTE, headers: { 'x-module-ticket': TICKET } })
     expect(sent.status).toBe(200)
-    expect(sent.json().ok).toBe(true)
-    expect(sent.headers['x-module-build']).toBeTruthy()
+    expect(sent.json.ok).toBe(true)
+    expect(sent.headers.get('x-module-build')).toBeTruthy()
   })
 
   test('the header this module used to read is no ticket at all, and neither is none', async () => {
-    const old = await through(DOORS, 'POST', '/api/note', { body: NOTE, headers: { 'x-notes-ticket': TICKET } })
+    const old = await through('POST', '/api/note', { body: NOTE, headers: { 'x-notes-ticket': TICKET } })
     expect(old.status).toBe(403)
-    expect(old.json().refused).toBe('ticket')
-    const bare = await through(DOORS, 'POST', '/api/note', { body: NOTE })
+    expect(old.json.refused).toBe('ticket')
+    const bare = await through('POST', '/api/note', { body: NOTE })
     expect(bare.status).toBe(403)
-    const read = await through(DOORS, 'GET', `/api/notes?projectPath=${encodeURIComponent(project)}&everything=1`)
-    expect((read.json().shown as unknown[]).length).toBe(0)
+    const read = await through('GET', `/api/notes?projectPath=${encodeURIComponent(project)}&everything=1`)
+    expect((read.json.shown as unknown[]).length).toBe(0)
   })
 
   test('the page carries the ticket and the build, uncached; the health check says the build', async () => {
-    const page = await through(DOORS, 'GET', '/app')
+    const page = await through('GET', '/app')
     expect(page.status).toBe(200)
     expect(page.text).toContain(`<script id="ticket" type="application/json">${JSON.stringify(TICKET)}</script>`)
     expect(page.text).toContain('<script id="build" type="application/json">')
-    expect(page.headers['cache-control']).toBe('no-store')
-    expect(page.headers['content-security-policy']).toContain('frame-ancestors')
-    const health = await through(DOORS, 'GET', '/healthz')
-    expect((health.json().build as { version: string }).version).toBe(BUILD.version)
-    expect(health.json().where).toContain('.kehikot/notes')
+    expect(page.headers.get('cache-control')).toBe('no-store')
+    expect(page.headers.get('content-security-policy')).toContain('frame-ancestors')
+    const health = await through('GET', '/healthz')
+    expect((health.json.build as { version: string }).version).toBe(BUILD.version)
+    expect(health.json.where).toContain('.kehikot/notes')
   })
 
   test('a body past the bound is 413, and the door is never asked', async () => {
-    const sent = await through(DOORS, 'POST', '/api/note', { body: 'x'.repeat(1_000_001), headers: { 'x-module-ticket': TICKET } })
+    const sent = await through('POST', '/api/note', { body: 'x'.repeat(1_000_001), headers: { 'x-module-ticket': TICKET } })
     expect(sent.status).toBe(413)
-    expect(sent.json().ok).toBe(false)
+    expect(sent.json.ok).toBe(false)
   })
 
   test('a write with the ticket goes through, and the read door narrows the same way', () => {

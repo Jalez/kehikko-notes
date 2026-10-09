@@ -10,7 +10,7 @@ import { Compose } from '../src/view/compose.tsx'
 import { NoteRow } from '../src/view/note.tsx'
 import { App } from '../src/app.tsx'
 import { edit } from '../src/store/ask.ts'
-import { keepDraft, readDraft, readDrafts } from '../src/store/held.ts'
+import { held } from 'kehikot-module-protocol/client'
 import { NO_STORE, Nowhere } from '../src/view/screens.tsx'
 
 /**
@@ -891,6 +891,8 @@ describe('writing one in a container a form would fill', () => {
  * sessionStorage, which is what a reload is to this code.
  */
 describe('typed words are held across a reload, aimed at what they were typed about', () => {
+  /* The page's own store, by its name: the key somebody's tab already holds drafts under. */
+  const drafts = held('kehikot.notes.drafts')
   const realFetch = globalThis.fetch
   const P = '/w/thesis'
   const PASSAGE = { path: '/w/thesis/chapters/bridge.tex', page: 3, section: null, from: 100, to: 140, quoted: 'A module is one origin or it is nothing.' }
@@ -933,7 +935,7 @@ describe('typed words are held across a reload, aimed at what they were typed ab
     render(<App />)
     await greet()
     fireEvent.change(box(), { target: { value: 'half a thought' } })
-    expect(readDraft(P, NEW)).toMatchObject({ text: 'half a thought', base: '' })
+    expect(drafts.at(P).read(NEW)).toMatchObject({ text: 'half a thought', base: '' })
     await reload()
     expect(box().value).toBe('half a thought')
     expect(screen.queryByTestId('kept-words')).toBeNull()
@@ -964,7 +966,7 @@ describe('typed words are held across a reload, aimed at what they were typed ab
       fireEvent.submit(screen.getByTestId('compose'))
       await new Promise((resolve) => setTimeout(resolve, 30))
     })
-    expect(readDrafts(P)).toEqual({})
+    expect(drafts.at(P).all()).toEqual({})
     await reload()
     expect(box().value).toBe('')
   })
@@ -979,7 +981,7 @@ describe('typed words are held across a reload, aimed at what they were typed ab
       await new Promise((resolve) => setTimeout(resolve, 30))
     })
     expect(document.querySelector('[data-cover]')?.getAttribute('data-cover')).toBe('stale')
-    expect(readDraft(P, NEW)?.text).toBe('pressed save on a stale page')
+    expect(drafts.at(P).read(NEW)?.text).toBe('pressed save on a stale page')
     resetServerStanding()
     await reload()
     expect(box().value).toBe('pressed save on a stale page')
@@ -992,10 +994,10 @@ describe('typed words are held across a reload, aimed at what they were typed ab
     fireEvent.click(screen.getByTestId('write'))
     fireEvent.change(box(), { target: { value: 'words' } })
     fireEvent.change(box(), { target: { value: '  ' } })
-    expect(readDrafts(P)).toEqual({})
+    expect(drafts.at(P).all()).toEqual({})
     fireEvent.change(box(), { target: { value: 'words again' } })
     fireEvent.click(screen.getByRole('button', { name: 'cancel' }))
-    expect(readDrafts(P)).toEqual({})
+    expect(drafts.at(P).all()).toEqual({})
   })
 
   test('a different project does not see them', async () => {
@@ -1017,7 +1019,7 @@ describe('typed words are held across a reload, aimed at what they were typed ab
     fireEvent.click(row())
     fireEvent.click(within(row()).getByRole('button', { name: 'reply' }))
     fireEvent.change(screen.getByLabelText('Reply to n1'), { target: { value: 'yes, and here is why' } })
-    expect(readDraft(P, 'reply:n1')?.text).toBe('yes, and here is why')
+    expect(drafts.at(P).read('reply:n1')?.text).toBe('yes, and here is why')
     await reload()
     await tick()
     expect((screen.getByLabelText('Reply to n1') as HTMLTextAreaElement).value).toBe('yes, and here is why')
@@ -1028,7 +1030,7 @@ describe('typed words are held across a reload, aimed at what they were typed ab
       fireEvent.submit(screen.getByLabelText('Reply to n1').closest('form') as HTMLFormElement)
       await new Promise((resolve) => setTimeout(resolve, 30))
     })
-    expect(readDrafts(P)).toEqual({})
+    expect(drafts.at(P).all()).toEqual({})
     expect(screen.queryByLabelText('Reply to n1')).toBeNull()
   })
 
@@ -1039,9 +1041,9 @@ describe('typed words are held across a reload, aimed at what they were typed ab
     await tick()
     fireEvent.click(screen.getByRole('button', { name: 'edit this note' }))
     /* Opened and not changed is not a draft. */
-    expect(readDrafts(P)).toEqual({})
+    expect(drafts.at(P).all()).toEqual({})
     fireEvent.change(screen.getByLabelText('Rewrite n1'), { target: { value: 'my better wording' } })
-    expect(readDraft(P, 'edit:n1')).toMatchObject({ base: 'is this still true after the rewrite?', text: 'my better wording' })
+    expect(drafts.at(P).read('edit:n1')).toMatchObject({ base: 'is this still true after the rewrite?', text: 'my better wording' })
 
     shown = [anchored('exact', { body: 'an agent rewrote this meanwhile' })]
     await reload()
@@ -1051,7 +1053,7 @@ describe('typed words are held across a reload, aimed at what they were typed ab
   })
 
   test('a reply to a note that is gone after the reload is shown as kept words, and can be discarded', async () => {
-    keepDraft(P, 'reply:gone', { base: '', text: 'a reply nobody can receive', aim: 'a reply to “a note that was removed”' })
+    drafts.at(P).keep('reply:gone', { base: '', text: 'a reply nobody can receive', aim: 'a reply to “a note that was removed”' })
     shown = [anchored('exact')]
     render(<App />)
     await greet()
@@ -1061,6 +1063,6 @@ describe('typed words are held across a reload, aimed at what they were typed ab
     expect(kept.textContent).toContain('a note that was removed')
     fireEvent.click(within(kept).getByRole('button', { name: 'discard' }))
     expect(screen.queryByTestId('kept-words')).toBeNull()
-    expect(readDrafts(P)).toEqual({})
+    expect(drafts.at(P).all()).toEqual({})
   })
 })

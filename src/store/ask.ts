@@ -204,14 +204,3 @@ export async function edit(change: Edit): Promise<Answer> {
     id: typeof asked.body?.id === 'string' ? asked.body.id : '',
   }
 }
-
-/**
- * Ask this app's own server whether it is there, for the cover's Try again.
- *
- * The answer is not read: `ask` itself records how the server is standing, which is what the cover
- * is drawn from. `/healthz` rather than a notes read, because a pane with no document open has no
- * read to repeat.
- */
-export async function knock(): Promise<void> {
-  await ask('/healthz')
-}
