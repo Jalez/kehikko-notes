@@ -56,7 +56,7 @@ export function focusOn<L extends Groups>(
   withdrawnShown: boolean,
 ): Focused<L> {
   const keep = (one: Anchored) => inHand.has(one.note.id)
-  const narrow = (group: Anchored[]) => narrowToFocus(parts, group, anchorOf, epic, keep)
+  const narrow = (group: Anchored[]) => narrowToFocus(parts, group, anchorOf, { epic, keep })
   const shown = narrow(looked.shown)
   const adrift = narrow(looked.adrift)
   const withdrawn = narrow(looked.withdrawn)
