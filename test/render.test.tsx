@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 
-import { resetServerStanding } from 'kehikot-module-protocol/client'
+import { mailbox, resetServerStanding } from 'kehikot-module-protocol/client'
 
 import type { Anchored } from '../notes/anchor.ts'
 import { roomFor } from '../notes/room.ts'
@@ -10,6 +10,7 @@ import { Compose } from '../src/view/compose.tsx'
 import { NoteRow } from '../src/view/note.tsx'
 import { App } from '../src/app.tsx'
 import { edit } from '../src/store/ask.ts'
+import { keepDraft, readDraft, readDrafts } from '../src/store/held.ts'
 import { NO_STORE, Nowhere } from '../src/view/screens.tsx'
 
 /**
@@ -702,7 +703,7 @@ describe('the controls on a row: edit, resolve, remove', () => {
     expect(screen.getByRole('button', { name: /is this still true/ }).getAttribute('data-open')).toBe('0')
   })
 
-  test('edit opens the words in a field, and saving writes the new words', () => {
+  test('edit opens the words in a field, and saving writes the new words', async () => {
     const edits: [string, string][] = []
     render(<NoteRow one={anchored('exact')} actions={{ ...actions, edit: (id, body) => void edits.push([id, body]) }} />)
     fireEvent.click(screen.getByRole('button', { name: 'edit this note' }))
@@ -711,6 +712,8 @@ describe('the controls on a row: edit, resolve, remove', () => {
     fireEvent.change(field, { target: { value: 'it is still true' } })
     fireEvent.click(screen.getByText('save'))
     expect(edits).toEqual([['n1', 'it is still true']])
+    /* Closed once the store has said it kept them — a tick later, not on the press. */
+    await act(async () => void (await Promise.resolve()))
     expect(screen.queryByTestId('rewrite')).toBeNull()
   })
 
@@ -877,5 +880,187 @@ describe('writing one in a container a form would fill', () => {
     render(<Compose room={roomy} {...props} />)
     expect(screen.queryByTestId('compose-fill')).toBeNull()
     expect(screen.getByTestId('compose').getAttribute('data-shape')).toBe('inline')
+  })
+})
+
+/*
+ * What was being typed survives a reload of the page. A stale page reloads itself — on the Save
+ * press that found it out, or on a read — so every box writes its words as they change, under the
+ * project and under exactly what they were aimed at, and a fresh page puts them back in the box
+ * that was open. "Reload" here is unmounting the page and mounting a new one over the same
+ * sessionStorage, which is what a reload is to this code.
+ */
+describe('typed words are held across a reload, aimed at what they were typed about', () => {
+  const realFetch = globalThis.fetch
+  const P = '/w/thesis'
+  const PASSAGE = { path: '/w/thesis/chapters/bridge.tex', page: 3, section: null, from: 100, to: 140, quoted: 'A module is one origin or it is nothing.' }
+  const NEW = 'new:/w/thesis/chapters/bridge.tex|3|100|140'
+  let shown: Anchored[] = []
+  let write: () => Response = () => new Response(JSON.stringify({ ok: true, said: 'kept', id: 'n9' }), { status: 200 })
+  const listed = () => ({ ok: true, said: '', scope: { kind: 'passage' }, shown, adrift: [], elsewhere: 0, withdrawn: [], verified: true, opened: true, trouble: null })
+  const greet = async (context: Record<string, unknown> = {}) => {
+    await act(async () => {
+      window.postMessage({ type: 'kehikot.hello', protocol: 2, session: 's', state: null, context: { epic: null, theme: 'dark', project: 'thesis', projectPath: P, passage: PASSAGE, ...context } }, '*')
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+  }
+  const tick = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 30))))
+  const box = () => screen.getByLabelText('Write a note about this') as HTMLTextAreaElement
+  /** A reload: this page gone, a new one over the same tab's storage, greeted again. */
+  const reload = async (context: Record<string, unknown> = {}) => {
+    cleanup()
+    /* A new document has heard nothing yet: without this the client would replay the old greeting. */
+    mailbox.forget?.()
+    render(<App />)
+    await greet(context)
+  }
+
+  beforeEach(() => {
+    sessionStorage.clear()
+    resetServerStanding()
+    shown = []
+    write = () => new Response(JSON.stringify({ ok: true, said: 'kept', id: 'n9' }), { status: 200 })
+    globalThis.fetch = (async (_url: string, init?: RequestInit) =>
+      (init?.method ?? 'GET') === 'POST' ? write() : new Response(JSON.stringify(listed()), { status: 200 })) as unknown as typeof fetch
+  })
+  afterEach(() => {
+    globalThis.fetch = realFetch
+    sessionStorage.clear()
+    resetServerStanding()
+  })
+
+  test('a new note: typed → reload → in the open composer, on the passage it was written about', async () => {
+    render(<App />)
+    await greet()
+    fireEvent.change(box(), { target: { value: 'half a thought' } })
+    expect(readDraft(P, NEW)).toMatchObject({ text: 'half a thought', base: '' })
+    await reload()
+    expect(box().value).toBe('half a thought')
+    expect(screen.queryByTestId('kept-words')).toBeNull()
+  })
+
+  test('a new note aimed at another passage is shown as kept words, not put in this passage’s box', async () => {
+    shown = [anchored('exact')]
+    render(<App />)
+    await greet()
+    fireEvent.click(screen.getByTestId('write'))
+    fireEvent.change(box(), { target: { value: 'about lines 100 to 140' } })
+    await reload({ passage: { ...PASSAGE, from: 500, to: 520, quoted: 'Another sentence entirely.' } })
+    expect(screen.queryByLabelText('Write a note about this')).toBeNull()
+    const kept = screen.getByTestId('kept-words')
+    expect(kept.textContent).toContain('about lines 100 to 140')
+    expect(kept.textContent).toContain('A module is one origin or it is nothing.')
+    /* Back on its own passage it is in its own box again. */
+    await reload()
+    expect(box().value).toBe('about lines 100 to 140')
+    expect(screen.queryByTestId('kept-words')).toBeNull()
+  })
+
+  test('saved → cleared: a note that was written leaves nothing to restore', async () => {
+    render(<App />)
+    await greet()
+    fireEvent.change(box(), { target: { value: 'kept by the store' } })
+    await act(async () => {
+      fireEvent.submit(screen.getByTestId('compose'))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    expect(readDrafts(P)).toEqual({})
+    await reload()
+    expect(box().value).toBe('')
+  })
+
+  test('a write that was not kept — refused, or the page was stale — leaves the words held', async () => {
+    write = () => new Response(JSON.stringify({ ok: false, error: 'old page', refused: 'ticket' }), { status: 403 })
+    render(<App />)
+    await greet()
+    fireEvent.change(box(), { target: { value: 'pressed save on a stale page' } })
+    await act(async () => {
+      fireEvent.submit(screen.getByTestId('compose'))
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    expect(document.querySelector('[data-cover]')?.getAttribute('data-cover')).toBe('stale')
+    expect(readDraft(P, NEW)?.text).toBe('pressed save on a stale page')
+    resetServerStanding()
+    await reload()
+    expect(box().value).toBe('pressed save on a stale page')
+  })
+
+  test('emptied, and cancelled, are both thrown away', async () => {
+    shown = [anchored('exact')]
+    render(<App />)
+    await greet()
+    fireEvent.click(screen.getByTestId('write'))
+    fireEvent.change(box(), { target: { value: 'words' } })
+    fireEvent.change(box(), { target: { value: '  ' } })
+    expect(readDrafts(P)).toEqual({})
+    fireEvent.change(box(), { target: { value: 'words again' } })
+    fireEvent.click(screen.getByRole('button', { name: 'cancel' }))
+    expect(readDrafts(P)).toEqual({})
+  })
+
+  test('a different project does not see them', async () => {
+    render(<App />)
+    await greet()
+    fireEvent.change(box(), { target: { value: 'for the thesis only' } })
+    await reload({ project: 'other', projectPath: '/w/other' })
+    expect(box().value).toBe('')
+    expect(screen.queryByTestId('kept-words')).toBeNull()
+    expect(document.body.textContent).not.toContain('for the thesis only')
+  })
+
+  test('a reply: typed → reload → its box is open under the same note, with the words in it', async () => {
+    shown = [anchored('exact'), anchored('exact', { id: 'n2', body: 'another note' })]
+    render(<App />)
+    await greet()
+    await tick()
+    const row = () => document.querySelector('[data-note-id="n1"]') as HTMLElement
+    fireEvent.click(row())
+    fireEvent.click(within(row()).getByRole('button', { name: 'reply' }))
+    fireEvent.change(screen.getByLabelText('Reply to n1'), { target: { value: 'yes, and here is why' } })
+    expect(readDraft(P, 'reply:n1')?.text).toBe('yes, and here is why')
+    await reload()
+    await tick()
+    expect((screen.getByLabelText('Reply to n1') as HTMLTextAreaElement).value).toBe('yes, and here is why')
+    expect(screen.queryByLabelText('Reply to n2')).toBeNull()
+
+    /* Left, and kept: the box closes and nothing is held. */
+    await act(async () => {
+      fireEvent.submit(screen.getByLabelText('Reply to n1').closest('form') as HTMLFormElement)
+      await new Promise((resolve) => setTimeout(resolve, 30))
+    })
+    expect(readDrafts(P)).toEqual({})
+    expect(screen.queryByLabelText('Reply to n1')).toBeNull()
+  })
+
+  test('a rewrite: restored open; and when the note changed meanwhile it says so rather than silently replacing it', async () => {
+    shown = [anchored('exact')]
+    render(<App />)
+    await greet()
+    await tick()
+    fireEvent.click(screen.getByRole('button', { name: 'edit this note' }))
+    /* Opened and not changed is not a draft. */
+    expect(readDrafts(P)).toEqual({})
+    fireEvent.change(screen.getByLabelText('Rewrite n1'), { target: { value: 'my better wording' } })
+    expect(readDraft(P, 'edit:n1')).toMatchObject({ base: 'is this still true after the rewrite?', text: 'my better wording' })
+
+    shown = [anchored('exact', { body: 'an agent rewrote this meanwhile' })]
+    await reload()
+    await tick()
+    expect((screen.getByLabelText('Rewrite n1') as HTMLTextAreaElement).value).toBe('my better wording')
+    expect(screen.getByTestId('rewrite-stale').textContent).toContain('an agent rewrote this meanwhile')
+  })
+
+  test('a reply to a note that is gone after the reload is shown as kept words, and can be discarded', async () => {
+    keepDraft(P, 'reply:gone', { base: '', text: 'a reply nobody can receive', aim: 'a reply to “a note that was removed”' })
+    shown = [anchored('exact')]
+    render(<App />)
+    await greet()
+    await tick()
+    const kept = screen.getByTestId('kept-words')
+    expect(kept.textContent).toContain('a reply nobody can receive')
+    expect(kept.textContent).toContain('a note that was removed')
+    fireEvent.click(within(kept).getByRole('button', { name: 'discard' }))
+    expect(screen.queryByTestId('kept-words')).toBeNull()
+    expect(readDrafts(P)).toEqual({})
   })
 })

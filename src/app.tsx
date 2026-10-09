@@ -14,6 +14,7 @@ import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
 import { snappable } from '../notes/room.ts'
 
 import { Button } from '@/components/ui/button.tsx'
+import { keepDraft, readDraft, readDrafts, type Draft } from '@/store/held.ts'
 import { edit, knock, look, type Anchored, type Ask, type Change, type Failed, type Looked } from '@/store/ask.ts'
 import { Compose } from '@/view/compose.tsx'
 import { NoteRow, type NoteActions } from '@/view/note.tsx'
@@ -415,6 +416,53 @@ export function App() {
    * `NoProject` — so this can only be reached by a bug, and it refuses rather
    * than sending a request the door would have to refuse for it.
    */
+  /*
+   * What was being typed, held across a reload of this page — see `store/held.ts`.
+   *
+   * A page that is older than its server reloads itself, on the Save press that found it out or on
+   * a read that did. So every box on this page writes what is in it as it changes, under the
+   * project and under exactly what it was aimed at: `new:<passage>` for a new note, and
+   * `reply:<note>` / `edit:<note>` in a row (`NoteRow` does those two itself). A draft is cleared
+   * by the write that kept it, by emptying the box, and by cancel.
+   */
+  const newTarget = passage ? `new:${passage.path}|${passage.page ?? ''}|${passage.from ?? ''}|${passage.to ?? ''}` : null
+  /* Which target the words in the composer are held under, so moving the reader moves the copy rather than leaving two. */
+  const draftAt = useRef<string | null>(null)
+  const [heldTick, setHeldTick] = useState(0)
+  const typed = useCallback(
+    (next: string) => {
+      setDraft(next)
+      if (!projectPath || !newTarget) return
+      if (draftAt.current && draftAt.current !== newTarget) keepDraft(projectPath, draftAt.current, null)
+      draftAt.current = newTarget
+      keepDraft(projectPath, newTarget, next.trim() ? { base: '', text: next, aim: `a new note on ${briefOf(scopeOf(passage))}${passage?.quoted ? ` — “${passage.quoted.slice(0, 80)}”` : ''}` } : null)
+    },
+    [projectPath, newTarget, passage],
+  )
+  /* A new note that was half written when the page reloaded comes back in the composer, open —
+     and only on the passage it was written about. Never over words already in the box. */
+  useEffect(() => {
+    if (!projectPath || !newTarget) return
+    const was = readDraft(projectPath, newTarget)
+    if (!was) return
+    setDraft((now) => {
+      if (now) return now
+      draftAt.current = newTarget
+      setWriting(true)
+      return was.text
+    })
+  }, [projectPath, newTarget])
+  const held = useMemo(
+    () =>
+      projectPath
+        ? {
+            read: (target: string) => readDraft(projectPath, target),
+            keep: (target: string, draft: Draft | null) => keepDraft(projectPath, target, draft),
+          }
+        : undefined,
+    [projectPath],
+  )
+
   const write = useCallback(
     async (change: Change) => {
       if (!projectPath) {
@@ -447,12 +495,13 @@ export function App() {
   }, [])
   const actions: NoteActions = useMemo(
     () => ({
-      reply: (id, body) => void write({ op: 'reply', id, body }),
+      reply: (id, body) => write({ op: 'reply', id, body }),
       resolve: (id, done) => void write({ op: 'resolve', id, done }),
       /* Both refused by the door for a note lifted out of the source, and
          neither is drawn for one — see `NoteRow`. The door is the rule; the
          row is the courtesy. */
-      edit: (id, body) => void write({ op: 'edit', id, body }),
+      edit: (id, body) => write({ op: 'edit', id, body }),
+      held,
       hold,
       remove: (id) => void write({ op: 'remove', id }),
       /*
@@ -537,7 +586,7 @@ export function App() {
         : null,
       busy,
     }),
-    [write, busy, point, where, hold],
+    [write, busy, point, where, hold, held],
   )
 
   /**
@@ -680,7 +729,44 @@ export function App() {
    */
   const notReady = coverFor({ where, projectPath })
   const cover: CoverState | null = server === 'stale' ? 'stale' : (notReady ?? (server === 'down' ? 'down' : null))
-  const covered = (content: ReactNode) => (
+  /*
+   * Held words whose target is not on screen: a note that is no longer in this list (removed, or
+   * the reader is somewhere else), or a new note written on a passage that is not the one in front.
+   * They are SHOWN, with what they were about, rather than restored somewhere they were not aimed
+   * or dropped. They go back into their own box the moment their target is on screen again.
+   */
+  const present = looked ? new Set([...looked.shown, ...looked.adrift, ...looked.withdrawn].map((one) => one.note.id)) : null
+  const strays = Object.entries(projectPath ? readDrafts(projectPath) : {}).filter(([target]) =>
+    target.startsWith('new:') ? target !== newTarget && target !== draftAt.current : present !== null && !present.has(target.replace(/^(reply|edit):/, '')),
+  )
+  void heldTick
+  const kept = strays.length ? (
+    <section data-testid="kept-words" className="min-w-0 space-y-1 px-2 pb-2 @sm/container:px-3">
+      <p className="min-w-0 text-[0.7rem] text-muted-foreground">
+        Typed here and not saved. What {strays.length === 1 ? 'it was' : 'they were'} written about is not on screen now, so{' '}
+        {strays.length === 1 ? 'it is' : 'they are'} kept here rather than put somewhere else:
+      </p>
+      {strays.map(([target, one]) => (
+        <div key={target} data-kept={target} className="min-w-0 rounded border border-border/60 p-1.5">
+          <p className="min-w-0 text-[0.65rem] text-muted-foreground">{one.aim}</p>
+          <p className="mt-1 min-w-0 whitespace-pre-wrap text-xs [overflow-wrap:anywhere]">{one.text}</p>
+          <Button
+            size="container"
+            variant="ghost"
+            onClick={() => {
+              if (projectPath) keepDraft(projectPath, target, null)
+              setHeldTick((was) => was + 1)
+            }}
+          >
+            discard
+          </Button>
+        </div>
+      ))}
+    </section>
+  ) : null
+
+  /* `inside`: the content is the full-height column and draws `kept` in its own scroller. */
+  const covered = (content: ReactNode, inside = false) => (
     <>
       {cover ? (
         <Cover
@@ -693,6 +779,7 @@ export function App() {
       <div hidden={cover !== null} className={cover ? undefined : 'contents'}>
         {content}
       </div>
+      {cover === null && !inside ? kept : null}
     </>
   )
 
@@ -760,6 +847,8 @@ export function App() {
       if (ok) {
         setDraft('')
         setWriting(false)
+        if (projectPath && draftAt.current) keepDraft(projectPath, draftAt.current, null)
+        draftAt.current = null
       }
     })
   }
@@ -772,9 +861,18 @@ export function App() {
       said={briefOf(shownScope)}
       busy={busy}
       draft={draft}
-      onDraft={setDraft}
+      onDraft={typed}
       onSubmit={submit}
-      onCancel={writing ? () => setWriting(false) : null}
+      onCancel={
+        writing
+          ? () => {
+              /* Cancel throws the HELD copy away on purpose. The box keeps its words, as it always has. */
+              if (projectPath && draftAt.current) keepDraft(projectPath, draftAt.current, null)
+              draftAt.current = null
+              setWriting(false)
+            }
+          : null
+      }
     />
   ) : null
 
@@ -905,6 +1003,7 @@ export function App() {
         className="min-h-0 min-w-0 flex-1 overflow-y-auto px-2 pb-2 @sm/container:px-3 @sm/container:pb-3"
       >
         <div ref={body} className="min-w-0 space-y-2">
+          {kept ? <div className="-mx-2 @sm/container:-mx-3">{kept}</div> : null}
           {refused ? (
             <p data-testid="refusal" className="min-w-0 text-xs text-adrift">
               {refused}
@@ -1054,6 +1153,7 @@ export function App() {
 
       {room.compose === 'fill' ? compose : null}
     </div>,
+    true,
   )
 }
 
