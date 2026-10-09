@@ -1,6 +1,6 @@
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 
-import { sameParts, type EpicPart, type FilterChoice, type FilterGroup, type ModuleContext } from 'kehikot-module-protocol'
+import { type EpicPart, type FilterChoice, type FilterGroup, type ModuleContext } from 'kehikot-module-protocol'
 
 import type { HostEvents } from 'kehikot-module-protocol/client'
 import { useHost, type Where } from 'kehikot-module-protocol/client/react'
@@ -13,25 +13,18 @@ import { useHost, type Where } from 'kehikot-module-protocol/client/react'
  * the theme put on `<html>`, the flattened project / path / epic, `passage.set`, a page that
  * reloads itself when it is older than its server. None of that is typed out here any more.
  *
- * ## What stays here, and why
+ * ## What stays here
  *
- * `useHost` hands back each context's `passage`, `filters`, `parts` and `containers` by the
- * IDENTITY the host sent them with, and a host builds every one of those afresh on every context —
- * after every change anywhere on the canvas, about every two seconds. In this page each of them is
- * a dependency of the memo that decides what to ask this app's own store, so a fresh identity with
- * the same contents means re-asking the store for the same notes several times a second. So:
- *
- * - `passage`, `chosen` and `parts` are **settled**: the previous object is handed on again while
- *   the new one says the same thing (`same`, `agrees`, the protocol's `sameParts`).
- * - `containers` is **one JSON string** of only what this page reads, so "did the canvas move" is a
- *   string comparison. See the field below.
+ * `useHost` hands back `passage`, `chosen` and `parts` as the same object for as long as each says
+ * the same thing, so they are dependencies as they stand. `containers` is **one JSON string** of
+ * only what this page reads, so "did the canvas move" is a string comparison. See the field below.
  *
  * ## The passage is handed on whole and never remembered
  *
  * The one rule with teeth: `passage` follows every context, including when it is null, and the
  * page never keeps the last one. A container that held onto the last passage would go on showing
  * the notes on a chapter the reader closed ten minutes ago — indistinguishable, on screen, from
- * the chapter still being open. Settling compares; it does not remember.
+ * the chapter still being open.
  */
 export type { Where }
 
@@ -67,17 +60,12 @@ export interface Kehikot {
    * narrowed. `notes/sift.ts` reads it, and reads it leniently, because the
    * greeting carries a remembered choice before this page has said what it
    * offers.
-   *
-   * Compared field by field before it is written, for the same reason `passage`
-   * is: a context arrives after every change anywhere on the canvas, carrying a
-   * fresh object every time, and a new identity here means re-asking this app's
-   * own store for the same notes several times a second.
    */
   chosen: FilterChoice
   /**
    * Every container on the kehikko, whether it is picked out, and what
    * documents it says it is showing, as the host last said — flattened to ONE
-   * STRING, for the reason the passage is compared field by field: a context
+   * STRING: a context
    * arrives after every change anywhere on the canvas, and a fresh array of
    * fresh rows each time would re-ask this app's store for the same notes
    * several times a second. `notes/aim.ts` reads it; `App` inflates it once.
@@ -162,13 +150,10 @@ export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
 export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
   const host = useHost(id, { onGoto })
-  const passage = useSettled<Passage | null>(host.passage, same)
-  const chosen = useSettled<FilterChoice>(host.chosen, agrees)
-  const parts = useSettled<readonly EpicPart[]>(host.parts, sameParts)
   /* A string, which is what makes it stable: an unmoved canvas flattens to the same characters,
      and equal strings are the same dependency. */
   const containers = flattenContainers(host.containers)
-  const { where, project, projectPath, epic, resize, filters, point } = host
+  const { where, project, projectPath, passage, chosen, epic, parts, resize, filters, point } = host
 
   return useMemo(
     () => ({ where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point }),
@@ -177,26 +162,12 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
 }
 
 /**
- * The previous value, for as long as the next one says the same thing.
- *
- * A ref written during render, which is safe here because it is idempotent: rendering twice with
- * the same input leaves the same value held.
- */
-function useSettled<T>(next: T, equal: (a: T, b: T) => boolean): T {
-  const held = useRef(next)
-  if (held.current !== next && !equal(held.current, next)) held.current = next
-  return held.current
-}
-
-
-/**
  * The host's containers as one string, or `''`.
  *
  * Only what this page reads survives: the module, the flag, and each document
  * as its path, page and range. Refs are dropped — a note is never filed
- * against one — and so is the quote, for the reason `same` ignores nothing
- * else: this page compares places, and the quote is what happened to be
- * there.
+ * against one — and so is the quote: this page compares places, and the
+ * quote is what happened to be there.
  */
 function flattenContainers(value: unknown): string {
   if (!Array.isArray(value) || value.length === 0) return ''
@@ -224,23 +195,4 @@ function flattenContainers(value: unknown): string {
     return [{ module: row.module, selected: row.selected === true, documents }]
   })
   return rows.length ? JSON.stringify(rows) : ''
-}
-
-/**
- * Whether two filter choices say the same thing.
- *
- * Key by key, because the host builds a new record on every context whatever
- * happens — see `same` below, which exists for the same reason and about the
- * same failure.
- */
-function agrees(a: FilterChoice, b: FilterChoice): boolean {
-  const keys = Object.keys(a)
-  if (keys.length !== Object.keys(b).length) return false
-  return keys.every((key) => a[key] === b[key])
-}
-
-/** Whether two passages say the same thing. Field by field, because the object is rebuilt every context. */
-function same(a: Passage | null, b: Passage | null): boolean {
-  if (a === null || b === null) return a === b
-  return a.path === b.path && a.page === b.page && a.from === b.from && a.to === b.to && a.quoted === b.quoted
 }
