@@ -7,7 +7,7 @@ import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'k
 
 import { ID } from '../manifest.ts'
 import { aimOf, aimOffer, briefOfPicked, inFrontOf, merged, saidOfEmpty, whyEmpty, type Shown } from '../notes/aim.ts'
-import { focusOn } from '../notes/focus.ts'
+import { briefOfParts, focusOn, ledByParts } from '../notes/focus.ts'
 import { keyOf, shownAt as heldAt, standing, type Pointed } from '../notes/pointed.ts'
 import { briefOf, fileOf, scopeOf, type Scope } from '../notes/scope.ts'
 import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
@@ -175,6 +175,9 @@ export function App() {
    */
   const onCanvas = useMemo<Shown[]>(() => shownFrom(containers), [containers])
   const front = useMemo(() => inFrontOf({ containers: onCanvas, aim: aimOf(chosen) }), [onCanvas, chosen])
+  /* The parts of the epic ticked in the host's bar. Read here, ahead of what is
+     asked of the store, because a tick decides that too: see `byParts` below. */
+  const focus = useFocus({ parts, epic })
 
   /**
    * The two things this list can be narrowed by, which the host now draws.
@@ -234,6 +237,16 @@ export function App() {
   }, [front, widen, shownAt])
 
   /**
+   * Whether the ticked parts decide the list: every note in the project is
+   * asked for, and `focusOn` leaves the ticked parts' own. The passage is not
+   * consulted then — it is whatever some container last pointed at, which is
+   * the paper's one caret page at best and another chapter altogether once the
+   * paper has gone quiet. `ledByParts` in `notes/focus.ts` has the rule and
+   * what was wrong before it.
+   */
+  const byParts = ledByParts({ focused: focus.focused, narrowed: front.narrowed, widen })
+
+  /**
    * The way out, in at most two presses, and never more than the rung allows.
    *
    * One climbs and one returns, and they are separate because a single control
@@ -249,6 +262,9 @@ export function App() {
        the reader's passage, and the list is not standing on it. The way out
        is the `aim` control in the container header. */
     if (front.narrowed) return out
+    /* Nor while the ticked parts decide it: there is no passage under the list
+       to climb out from, and the way out is the ticks in the host's bar. */
+    if (byParts) return out
     if (widen === null && (shownScope.kind === 'passage' || shownScope.kind === 'page')) {
       out.push({ said: `all of ${fileOf(shownScope.path)}`, press: () => setWiden('document') })
     }
@@ -257,7 +273,7 @@ export function App() {
     }
     if (widen !== null) out.push({ said: 'follow the reader', press: () => setWiden(null) })
     return out
-  }, [front.narrowed, widen, shownScope])
+  }, [front.narrowed, byParts, widen, shownScope])
 
   /* Read inside the press, which is why it is a ref: `actions` is memoised on
      what a press NEEDS, and adding the current scope to that list would rebuild
@@ -318,6 +334,10 @@ export function App() {
    * `merged` in `notes/aim.ts`. `null` is nothing to ask and draws `Nowhere`;
    * an EMPTY list is the picks having emptied it, which draws its own sentence
    * rather than the one about nobody pointing.
+   *
+   * And while the ticked parts decide the list (`byParts`), the one ask is for
+   * everything, passage or no passage: the parts narrow the answer and count
+   * what they left out.
    */
   const asks: Ask[] | null = useMemo(() => {
     if (where === 'listening') return null
@@ -334,7 +354,7 @@ export function App() {
         resolved: withResolved,
       }))
     }
-    if (widen === 'everything') {
+    if (widen === 'everything' || byParts) {
       return [{ project, projectPath, path: null, page: null, from: null, to: null, everything: true, resolved: withResolved }]
     }
     if (!shownAt) return null
@@ -368,7 +388,7 @@ export function App() {
         resolved: withResolved,
       },
     ]
-  }, [where, widen, shownAt, project, projectPath, withResolved, front])
+  }, [where, widen, byParts, shownAt, project, projectPath, withResolved, front])
 
   /*
    * Re-read on every change of scope, and after every write.
@@ -610,14 +630,14 @@ export function App() {
    * The parts of the epic ticked in the host's bar: of the notes the store
    * answered with, the ones whose file a ticked part owns, and a sentence
    * saying how many are not. Nothing ticked is `looked` itself. Everything
-   * DRAWN below reads `seen`; what is asked of the store, and whether an empty
-   * place opens the form, still read `looked`. See `notes/focus.ts`.
+   * DRAWN below reads `seen`; whether an empty place opens the form still
+   * reads `looked`. See `notes/focus.ts`, and `byParts` above for what a tick
+   * asks the store.
    *
    * A note in somebody's hands is not taken by a tick: the rows say which
    * they are (`hold`), and the one this container pointed the canvas at is
    * one more.
    */
-  const focus = useFocus({ parts, epic })
   const focused = useMemo(() => {
     if (!looked) return null
     const kept = pointed ? new Set([...inHand, pointed.id]) : inHand
@@ -729,7 +749,9 @@ export function App() {
    * They are SHOWN, with what they were about, rather than restored somewhere they were not aimed
    * or dropped. They go back into their own box the moment their target is on screen again.
    */
-  const present = looked ? new Set([...looked.shown, ...looked.adrift, ...looked.withdrawn].map((one) => one.note.id)) : null
+  /* What is DRAWN (`seen`), not what the store answered: under ticked parts the answer is the whole
+     project, and a reply half written on a note the ticks have put aside is not on screen. */
+  const present = seen ? new Set([...seen.shown, ...seen.adrift, ...seen.withdrawn].map((one) => one.note.id)) : null
   const strays = Object.entries(here?.all() ?? {}).filter(([target]) =>
     target.startsWith('new:') ? target !== newTarget && target !== draftAt.current : present !== null && !present.has(target.replace(/^(reply|edit):/, '')),
   )
@@ -919,16 +941,19 @@ export function App() {
           <p
             data-testid="scope"
             data-narrowed={front.narrowed ? 'true' : undefined}
+            data-parts={byParts ? 'true' : undefined}
             title={
               front.narrowed
                 ? front.documents.map((doc) => doc.path).join('\n')
-                : widen === 'everything'
-                  ? undefined
-                  : (shownAt?.path ?? undefined)
+                : byParts
+                  ? FOCUS_WHERE
+                  : widen === 'everything'
+                    ? undefined
+                    : (shownAt?.path ?? undefined)
             }
             className="min-w-0 flex-1 truncate text-xs font-medium"
           >
-            {front.narrowed ? briefOfPicked(front) : briefOf(shownScope)}
+            {front.narrowed ? briefOfPicked(front) : byParts ? briefOfParts(focus.parts) : briefOf(shownScope)}
           </p>
           {climbs.map((climb) => (
             <Button
@@ -1045,7 +1070,7 @@ export function App() {
               {saidOfEmpty({
                 opened: seen?.opened ?? null,
                 adrift: Boolean(seen?.adrift.length),
-                file: front.narrowed ? (front.documents[0] ? fileOf(front.documents[0].path) : null) : shownAt ? fileOf(shownAt.path) : null,
+                file: front.narrowed ? (front.documents[0] ? fileOf(front.documents[0].path) : null) : !byParts && shownAt ? fileOf(shownAt.path) : null,
               })}
             </p>
           )}
