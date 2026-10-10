@@ -1,4 +1,4 @@
-import { focusSentence, narrowToFocus, type Anchors, type EpicPart } from 'kehikot-module-protocol'
+import { focusSentence, narrowToFocus, pickedParts, type Anchors, type EpicPart } from 'kehikot-module-protocol'
 
 import type { Anchored } from './anchor.ts'
 
@@ -12,10 +12,42 @@ import type { Anchored } from './anchor.ts'
  * adrift, and the preamble comments it stopped reading as notes — which are
  * narrowed together and counted once.
  *
- * It narrows what the page DRAWS. What the page asks its store for is
- * unchanged, and so is the MCP door: an agent has no canvas and reads every
+ * ## A tick is asked about the whole project, and then narrowed
+ *
+ * This used to narrow only what the page had already asked for, and the page
+ * asked for the reader's passage: the one page of the one file the paper's
+ * caret was in. So a ticked part showed that page's notes under `0 notes
+ * outside the picked part`, two ticked parts showed one of them, and a paper
+ * that had been walked somewhere by another container — which then says
+ * nothing new until a person touches it — left this list on the old chapter,
+ * or empty, whatever was ticked. The passage is a guess at where the reader
+ * is; a tick is them saying.
+ *
+ * So while a part is ticked and nothing else narrows on purpose (`ledByParts`),
+ * the page asks its store for every note in the project and this narrows THAT:
+ * the list is the ticked parts' notes, and the count is the rest of the
+ * project's. The MCP door is unchanged: an agent has no canvas and reads every
  * note.
  */
+
+/**
+ * Whether the ticked parts decide the list, rather than the passage.
+ *
+ * They do unless a person narrowed on purpose some other way, and each of
+ * those is a press: a container picked out in its header (`narrowed`, see
+ * `notes/aim.ts` — the two are applied together, the parts to what the picked
+ * containers show), or a rung of this page's own ladder (`widen`), which
+ * stands until the reader moves. A press on a note is NOT one: it marks the
+ * note and moves the paper, and the list it was pressed from stays.
+ */
+export function ledByParts(input: { focused: boolean; narrowed: boolean; widen: null | 'document' | 'everything' }): boolean {
+  return input.focused && !input.narrowed && input.widen === null
+}
+
+/** The heading for a list the ticked parts decide: their names, in the epic's order. A label, for the column it sits in. */
+export function briefOfParts(parts: readonly EpicPart[]): string {
+  return pickedParts(parts).map((part) => part.heading || part.id).join(', ')
+}
 
 /** What ties a note to a part: the file it was written against. Absolute here; the protocol finds the paper's folder in it. */
 export function anchorOf(one: Anchored): Anchors {

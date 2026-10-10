@@ -5,7 +5,7 @@ import { partsDeclaration, type EpicPart } from 'kehikot-module-protocol'
 
 import { MANIFEST } from '../manifest.ts'
 import type { Anchored } from '../notes/anchor.ts'
-import { anchorOf, focusOn } from '../notes/focus.ts'
+import { anchorOf, briefOfParts, focusOn, ledByParts } from '../notes/focus.ts'
 import type { Note } from '../notes/shape.ts'
 import { NoteRow } from '../src/view/note.tsx'
 
@@ -120,4 +120,22 @@ describe('a row says when somebody is in the middle of it', () => {
 test('the manifest says it follows the parts', () => {
   expect(MANIFEST.reacts).toContain('parts')
   expect(partsDeclaration(MANIFEST)).toEqual([])
+})
+
+describe('when the ticked parts decide the list', () => {
+  test('whenever a part is ticked and nobody narrowed on purpose some other way', () => {
+    expect(ledByParts({ focused: true, narrowed: false, widen: null })).toBe(true)
+    /* Nothing ticked: the reader's passage, as it always was. */
+    expect(ledByParts({ focused: false, narrowed: false, widen: null })).toBe(false)
+    /* A container picked out in its header, and a rung of this page's own ladder, are each a press. */
+    expect(ledByParts({ focused: true, narrowed: true, widen: null })).toBe(false)
+    expect(ledByParts({ focused: true, narrowed: false, widen: 'document' })).toBe(false)
+    expect(ledByParts({ focused: true, narrowed: false, widen: 'everything' })).toBe(false)
+  })
+
+  test('the heading names the ticked parts, in the epic’s order', () => {
+    expect(briefOfParts(parts('methods'))).toBe('Methods')
+    expect(briefOfParts(parts('methods', 'intro'))).toBe('Introduction, Methods')
+    expect(briefOfParts(parts())).toBe('')
+  })
 })
