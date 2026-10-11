@@ -7,7 +7,7 @@ import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'k
 
 import { ID } from '../manifest.ts'
 import { aimOf, aimOffer, briefOfPicked, inFrontOf, merged, saidOfEmpty, whyEmpty, type Shown } from '../notes/aim.ts'
-import { briefOfParts, focusOn, ledByParts } from '../notes/focus.ts'
+import { briefOfParts, focusOn, ledByParts, saidOfNone } from '../notes/focus.ts'
 import { keyOf, shownAt as heldAt, standing, type Pointed } from '../notes/pointed.ts'
 import { briefOf, fileOf, scopeOf, type Scope } from '../notes/scope.ts'
 import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
@@ -336,8 +336,7 @@ export function App() {
    * rather than the one about nobody pointing.
    *
    * And while the ticked parts decide the list (`byParts`), the one ask is for
-   * everything, passage or no passage: the parts narrow the answer and count
-   * what they left out.
+   * everything, passage or no passage: the parts narrow the answer.
    */
   const asks: Ask[] | null = useMemo(() => {
     if (where === 'listening') return null
@@ -628,8 +627,9 @@ export function App() {
    */
   /*
    * The parts of the epic ticked in the host's bar: of the notes the store
-   * answered with, the ones whose file a ticked part owns, and a sentence
-   * saying how many are not. Nothing ticked is `looked` itself. Everything
+   * answered with, the ones whose file a ticked part owns. Nothing is said
+   * about the rest: the heading names the parts and the host's bar shows the
+   * ticks. Nothing ticked is `looked` itself. Everything
    * DRAWN below reads `seen`; whether an empty place opens the form still
    * reads `looked`. See `notes/focus.ts`, and `byParts` above for what a tick
    * asks the store.
@@ -1041,14 +1041,6 @@ export function App() {
           {/* In the flow of the list where there is room for it, and over the whole
               frame where there is not -- in which case it is drawn at the bottom of
               this file rather than here, because it is over the heading too. */}
-          {/* What the ticked parts put aside. Its own line, never truncated:
-              it is the reason the list is shorter than it was, and the control
-              is not on this page — the tooltip says where it is. */}
-          {focused?.sentence ? (
-            <p data-testid="focus" title={FOCUS_WHERE} className="min-w-0 text-[0.7rem] text-muted-foreground">
-              {focused.sentence}
-            </p>
-          ) : null}
           {room.compose === 'inline' ? compose : null}
 
           {seen?.shown.length ? (
@@ -1067,7 +1059,12 @@ export function App() {
                   `whyEmpty` above; this is the other two, and which one it is
                   depends on whether the document could be opened at all. See
                   `saidOfEmpty`. */}
-              {saidOfEmpty({
+              {/* And a fourth, in the same place: the ticked parts emptied it.
+                  This is the only thing this page says about the ticks, and
+                  only because an empty list with no reason reads as broken. */}
+              {focused?.aside && seen?.opened !== false && !seen?.adrift.length
+                ? saidOfNone(focus.parts)
+                : saidOfEmpty({
                 opened: seen?.opened ?? null,
                 adrift: Boolean(seen?.adrift.length),
                 file: front.narrowed ? (front.documents[0] ? fileOf(front.documents[0].path) : null) : !byParts && shownAt ? fileOf(shownAt.path) : null,

@@ -5,7 +5,7 @@ import { partsDeclaration, type EpicPart } from 'kehikot-module-protocol'
 
 import { MANIFEST } from '../manifest.ts'
 import type { Anchored } from '../notes/anchor.ts'
-import { anchorOf, briefOfParts, focusOn, ledByParts } from '../notes/focus.ts'
+import { anchorOf, briefOfParts, focusOn, ledByParts, saidOfNone } from '../notes/focus.ts'
 import type { Note } from '../notes/shape.ts'
 import { NoteRow } from '../src/view/note.tsx'
 
@@ -63,40 +63,44 @@ describe('which notes the ticked parts leave', () => {
   test('nothing ticked: the answer itself, and nothing to say', () => {
     const out = focusOn(LOOKED, parts(), 'thesis', NOBODY, false)
     expect(out.looked).toBe(LOOKED)
-    expect(out.sentence).toBe('')
+    expect(out.aside).toBe(false)
   })
 
-  test('one part: its file’s notes in every group; main.tex and a file outside the paper are counted outside', () => {
+  test('one part: its file’s notes in every group; main.tex and a file outside the paper are put aside', () => {
     const out = focusOn(LOOKED, parts('methods'), 'thesis', NOBODY, false)
     expect(ids(out.looked.shown)).toEqual(['methods-1'])
     expect(ids(out.looked.adrift)).toEqual(['methods-adrift'])
     expect(out.looked.withdrawn).toEqual([])
     expect(out.looked.said).toBe('everything')
-    expect(out.sentence).toBe('4 notes outside the picked part (Methods).')
+    expect(out.aside).toBe(true)
   })
 
   test('two parts', () => {
     const out = focusOn(LOOKED, parts('intro', 'methods'), 'thesis', NOBODY, false)
     expect(ids(out.looked.shown)).toEqual(['intro-1', 'methods-1'])
-    expect(out.sentence).toBe('2 notes outside the 2 picked parts (Introduction, Methods).')
   })
 
-  test('the preamble comments are counted only while they are drawn', () => {
-    expect(focusOn(LOOKED, parts('methods'), 'thesis', NOBODY, true).sentence).toBe('6 notes outside the picked part (Methods).')
+  test('the preamble comments are narrowed too, and weighed only while they are drawn', () => {
+    const only = { ...LOOKED, shown: [], adrift: [] }
+    expect(focusOn(only, parts('methods'), 'thesis', NOBODY, true).aside).toBe(true)
+    expect(focusOn(only, parts('methods'), 'thesis', NOBODY, false).aside).toBe(false)
+    expect(focusOn(only, parts('methods'), 'thesis', NOBODY, false).looked.withdrawn).toEqual([])
+  })
+
+  test('the one sentence there is: a list the ticks emptied says so, and says nothing else', () => {
+    expect(saidOfNone(parts('methods'))).toBe('No note is in the picked part.')
+    expect(saidOfNone(parts('intro', 'methods'))).toBe('No note is in the picked parts.')
   })
 
   test('another epic’s parts own none of this paper’s files', () => {
     expect(focusOn(LOOKED, parts('methods'), 'another', NOBODY, false).looked.shown).toEqual([])
   })
 
-  test('a note in somebody’s hands stays where it was, and is still counted outside', () => {
+  test('a note in somebody’s hands stays where it was, and nothing announces it', () => {
     const out = focusOn(LOOKED, parts('methods'), 'thesis', new Set(['intro-1', 'intro-adrift']), false)
     expect(ids(out.looked.shown)).toEqual(['intro-1', 'methods-1'])
     expect(ids(out.looked.adrift)).toEqual(['methods-adrift', 'intro-adrift'])
-    expect(out.sentence).toBe('4 notes outside the picked part (Methods). 2 are still here because you have them open.')
-    expect(focusOn(LOOKED, parts('methods'), 'thesis', new Set(['main-1']), false).sentence).toEndWith(
-      '1 is still here because you have it open.',
-    )
+    expect(Object.keys(out).sort()).toEqual(['aside', 'looked'])
   })
 })
 
