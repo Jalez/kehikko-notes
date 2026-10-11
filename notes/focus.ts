@@ -1,4 +1,4 @@
-import { focusSentence, narrowToFocus, pickedParts, type Anchors, type EpicPart } from 'kehikot-module-protocol'
+import { narrowToFocus, pickedParts, type Anchors, type EpicPart } from 'kehikot-module-protocol'
 
 import type { Anchored } from './anchor.ts'
 
@@ -6,18 +6,27 @@ import type { Anchored } from './anchor.ts'
  * The parts of the epic a person ticked in the host's bar, as this list
  * follows them.
  *
- * The rule, the count and the sentence are the protocol's (0.34.0). What is
- * here is the two things only this module knows: what anchors a note, and
- * that its list is three groups — the notes that could be placed, the ones
- * adrift, and the preamble comments it stopped reading as notes — which are
- * narrowed together and counted once.
+ * The rule is the protocol's (0.34.0). What is here is the two things only
+ * this module knows: what anchors a note, and that its list is three groups —
+ * the notes that could be placed, the ones adrift, and the preamble comments
+ * it stopped reading as notes — which are narrowed together.
+ *
+ * ## Nothing is said about what was put aside
+ *
+ * The list used to carry a line of its own under the heading — `26 notes
+ * outside the picked part (Methods).` — and it cost a row of a container
+ * whose rows are the point. The host's bar already says which parts are
+ * ticked, and the heading of this list names them in the line it had anyway;
+ * the notes that are drawn are the message. The one thing still said is why
+ * a list is EMPTY when the ticks emptied it (`saidOfNone`), in the place the
+ * list would have been, because an empty pane with no reason reads as broken.
  *
  * ## A tick is asked about the whole project, and then narrowed
  *
  * This used to narrow only what the page had already asked for, and the page
  * asked for the reader's passage: the one page of the one file the paper's
- * caret was in. So a ticked part showed that page's notes under `0 notes
- * outside the picked part`, two ticked parts showed one of them, and a paper
+ * caret was in. So a ticked part showed that page's notes and no more, two
+ * ticked parts showed one of them, and a paper
  * that had been walked somewhere by another container — which then says
  * nothing new until a person touches it — left this list on the old chapter,
  * or empty, whatever was ticked. The passage is a guess at where the reader
@@ -25,8 +34,7 @@ import type { Anchored } from './anchor.ts'
  *
  * So while a part is ticked and nothing else narrows on purpose (`ledByParts`),
  * the page asks its store for every note in the project and this narrows THAT:
- * the list is the ticked parts' notes, and the count is the rest of the
- * project's. The MCP door is unchanged: an agent has no canvas and reads every
+ * the list is the ticked parts' notes. The MCP door is unchanged: an agent has no canvas and reads every
  * note.
  */
 
@@ -64,8 +72,8 @@ interface Groups {
 export interface Focused<L extends Groups> {
   /** The answer with each group narrowed — or the same object when nothing is ticked. */
   looked: L
-  /** The protocol's sentence, with what was kept said after it. `''` when nothing is ticked. */
-  sentence: string
+  /** Whether the ticks put any drawn note aside: what tells a list the ticks emptied from one nobody wrote in. */
+  aside: boolean
 }
 
 /**
@@ -73,12 +81,11 @@ export interface Focused<L extends Groups> {
  *
  * `inHand` is the notes a person is in the middle of — opened, being replied
  * to, being rewritten, or the one the canvas was pointed at by pressing it.
- * Those stay where they are though their file is outside, are still counted
- * outside, and the sentence says they are there because they are open.
+ * Those stay where they are though their file is outside.
  *
- * The preamble comments are narrowed like the rest and counted only while
- * they are drawn (`withdrawnShown`): a count of rows nobody was going to see
- * is not a count of what the focus hid.
+ * The preamble comments are narrowed like the rest and weighed only while
+ * they are drawn (`withdrawnShown`): rows nobody was going to see are not
+ * what the focus hid.
  */
 export function focusOn<L extends Groups>(
   looked: L,
@@ -87,17 +94,20 @@ export function focusOn<L extends Groups>(
   inHand: ReadonlySet<string>,
   withdrawnShown: boolean,
 ): Focused<L> {
+  if (!pickedParts(parts).length) return { looked, aside: false }
   const keep = (one: Anchored) => inHand.has(one.note.id)
   const narrow = (group: Anchored[]) => narrowToFocus(parts, group, anchorOf, { epic, keep })
   const shown = narrow(looked.shown)
   const adrift = narrow(looked.adrift)
   const withdrawn = narrow(looked.withdrawn)
-  const counted = withdrawnShown ? [shown, adrift, withdrawn] : [shown, adrift]
-  const sentence = focusSentence(parts, counted.reduce((sum, one) => sum + one.outside, 0), 'note')
-  if (!sentence) return { looked, sentence }
-  const kept = counted.reduce((sum, one) => sum + one.kept, 0)
+  const weighed = withdrawnShown ? [shown, adrift, withdrawn] : [shown, adrift]
   return {
     looked: { ...looked, shown: shown.shown, adrift: adrift.shown, withdrawn: withdrawn.shown },
-    sentence: kept ? `${sentence} ${kept === 1 ? '1 is' : `${kept} are`} still here because you have ${kept === 1 ? 'it' : 'them'} open.` : sentence,
+    aside: weighed.some((one) => one.outside > 0),
   }
+}
+
+/** The one sentence for a list the ticks emptied, drawn where the list would have been. */
+export function saidOfNone(parts: readonly EpicPart[]): string {
+  return `No note is in the picked ${pickedParts(parts).length === 1 ? 'part' : 'parts'}.`
 }

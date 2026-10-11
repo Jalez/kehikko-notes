@@ -112,22 +112,25 @@ const drawn = () => {
   return { methods: count(WRITTEN.methods), results: count(WRITTEN.results), main: count(WRITTEN.main) }
 }
 const heading = () => document.querySelector('[data-testid="scope"]')?.textContent ?? null
-const outside = () => document.querySelector('[data-testid="focus"]')?.textContent ?? null
+/** Anything on the page that talks about the ticks: there is to be none while there is a note to show. */
+const notice = () =>
+  document.querySelector('[data-testid="focus"]') !== null || /outside the|picked part|host’s bar/.test(document.body.textContent ?? '')
+const empty = () => document.querySelector('[data-testid="empty"]')?.textContent ?? null
 
 describe('the notes follow the ticked parts, whatever passage the canvas last held', () => {
-  test('no part, one, another, two, none: each tick is that part’s notes, and the count is the rest of the project', async () => {
+  test('no part, one, another, two, none: each tick is that part’s notes, and no line says what was put aside', async () => {
     render(<App />)
     /* Nothing ticked, the paper's caret on a page: that page's notes, as it always was. */
     await say('kehikot.hello', canvas(page('chapters/3_methods.tex', 19), []))
     await waitFor(() => expect(drawn()).toEqual({ methods: 1, results: 0, main: 0 }))
     expect(heading()).toBe('3_methods.tex · page 19')
-    expect(outside()).toBeNull()
+    expect(notice()).toBe(false)
 
     /* A part ticked: the whole part, not the page the caret happens to be on. */
     await say('kehikot.context', canvas(page('chapters/3_methods.tex', 19), ['methods']))
     await waitFor(() => expect(drawn()).toEqual({ methods: 2, results: 0, main: 0 }))
     expect(heading()).toBe('Methods')
-    expect(outside()).toBe('2 notes outside the picked part (Methods).')
+    expect(notice()).toBe(false)
     /* No ladder out from a passage the list is not standing on. */
     expect(document.querySelector('[data-testid="widen"]')).toBeNull()
 
@@ -136,19 +139,43 @@ describe('the notes follow the ticked parts, whatever passage the canvas last he
     await say('kehikot.context', canvas(page('chapters/3_methods.tex', 19), ['results']))
     await waitFor(() => expect(drawn()).toEqual({ methods: 0, results: 1, main: 0 }))
     expect(heading()).toBe('Results')
-    expect(outside()).toBe('3 notes outside the picked part (Results).')
+    expect(notice()).toBe(false)
 
     /* Two parts, and the passage names the one file the caret is in. */
     await say('kehikot.context', canvas(page('chapters/4_results.tex', 30), ['methods', 'results']))
     await waitFor(() => expect(drawn()).toEqual({ methods: 2, results: 1, main: 0 }))
     expect(heading()).toBe('Methods, Results')
-    expect(outside()).toBe('1 note outside the 2 picked parts (Methods, Results).')
+    expect(notice()).toBe(false)
 
     /* Nothing ticked again: back to following the passage, down to its page. */
     await say('kehikot.context', canvas(page('chapters/4_results.tex', 30), []))
     await waitFor(() => expect(drawn()).toEqual({ methods: 0, results: 1, main: 0 }))
     expect(heading()).toBe('4_results.tex · page 30')
-    expect(outside()).toBeNull()
+    expect(notice()).toBe(false)
+  })
+
+  test('a tick that leaves nothing to show says so in the empty place, in one sentence, and nowhere else', async () => {
+    render(<App />)
+    const bare = (...picked: string[]) => {
+      const said = canvas(null, [])
+      return {
+        ...said,
+        parts: [...said.parts, { id: 'discussion', heading: 'Discussion', refs: [], picked: false, files: ['chapters/5_discussion.tex'] }].map((part) => ({
+          ...part,
+          picked: picked.includes(part.id),
+        })),
+      }
+    }
+    await say('kehikot.hello', bare('discussion'))
+    await waitFor(() => expect(empty()).toBe('No note is in the picked part.'))
+    expect(document.querySelectorAll('[data-testid="note"]')).toHaveLength(0)
+    expect(document.querySelector('[data-testid="focus"]')).toBeNull()
+    expect(document.body.textContent).not.toContain('host’s bar')
+
+    /* A note to show again: the sentence goes with the emptiness it explained. */
+    await say('kehikot.context', bare('discussion', 'results'))
+    await waitFor(() => expect(drawn().results).toBe(1))
+    expect(notice()).toBe(false)
   })
 
   test('a ticked part with no passage on the canvas at all: the part’s notes, not "nothing open"', async () => {
@@ -162,7 +189,7 @@ describe('the notes follow the ticked parts, whatever passage the canvas last he
     render(<App />)
     await say('kehikot.hello', canvas(page('main.tex', 1), ['methods']))
     await waitFor(() => expect(drawn()).toEqual({ methods: 2, results: 0, main: 0 }))
-    expect(outside()).toBe('2 notes outside the picked part (Methods).')
+    expect(notice()).toBe(false)
   })
 
   test('a container somebody picked out still narrows, beside the ticks', async () => {
@@ -193,10 +220,10 @@ describe('the notes follow the ticked parts, whatever passage the canvas last he
 
     await say('kehikot.context', canvas(page('chapters/3_methods.tex', 19), ['results']))
     await waitFor(() => expect(drawn().results).toBe(1))
-    /* The note it is on stays, and says why; the other methods note has gone with the tick. */
+    /* The note it is on stays, with no line announcing it; the other methods note has gone with the tick. */
     expect(drawn().methods).toBe(1)
     expect((document.querySelector('[data-testid="note"] textarea') as HTMLTextAreaElement).value).toBe('half a rep')
-    expect(outside()).toBe('3 notes outside the picked part (Results). 1 is still here because you have it open.')
+    expect(notice()).toBe(false)
   })
 
   test('and after a reload under that tick the words are shown as kept, then back in their box when the part is ticked again', async () => {
