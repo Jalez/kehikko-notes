@@ -360,7 +360,7 @@ describe('the page’s own door', () => {
    */
   const doors = doorsFetch({ manifest: MANIFEST, answer, build: BUILD, page: { title: 'Notes', ticket: TICKET } })
   const through = async (method: string, url: string, { body, headers }: { body?: unknown; headers?: Record<string, string> } = {}) => {
-    const sent = (await doors(new Request(`http://127.0.0.1${url}`, { method, headers, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) })))!
+    const sent = (await doors(new Request(`http://127.0.0.1${url}`, { method, headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) })))!
     return { status: sent.status, headers: sent.headers, json: (await sent.clone().json().catch(() => null)) as Record<string, unknown>, text: await sent.text() }
   }
   const NOTE = { op: 'add', projectPath: project, path: CHAPTER, page: 1, from: FROM, to: TO, quoted: 'A module is one origin or it is nothing.', body: 'through the doors' }
