@@ -301,7 +301,9 @@ export function look(asked: Asked, includeResolved: boolean): Looked {
 
   const { notes, trouble } = notesOf(asked.projectPath)
   const wanted = includeResolved ? notes : notes.filter((one) => !one.resolved)
-  const anchored = resolveAll(wanted, read)
+  /* `read.map`, so each document is mapped once and stays mapped until its file
+     changes — see `held` in `notes/source.ts` for what not doing that cost. */
+  const anchored = resolveAll(wanted, read, read.map)
   const verified = anchored.some((one) => one.anchor.state === 'exact' || one.anchor.state === 'moved' || one.anchor.state === 'adrift')
   /* Read once more rather than remembered from the anchors: a document with no
      notes on it was never opened above, and the question is about the document. */

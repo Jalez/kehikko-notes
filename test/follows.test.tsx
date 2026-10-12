@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { mailbox, resetServerStanding } from 'kehikot-module-protocol/client'
 
 import { TICKET, answer as door } from '../doors.ts'
-import { App } from '../src/app.tsx'
+import { App, STILL_MS } from '../src/app.tsx'
 
 /**
  * The whole page against the real doors, walked through the ticks a person makes in the host's
@@ -246,5 +246,47 @@ describe('the notes follow the ticked parts, whatever passage the canvas last he
     await waitFor(() => expect(drawn().methods).toBe(2))
     await waitFor(() => expect(document.querySelector('[data-testid="kept-words"]')).toBeNull())
     expect((document.querySelector('[data-testid="note"] textarea') as HTMLTextAreaElement | null)?.value).toBe('half a rep')
+  })
+
+  test('one tick answered by a canvas in several contexts is one read, and one more once it is still', async () => {
+    const asked: string[] = []
+    const stubbed = globalThis.fetch
+    globalThis.fetch = ((url: string, init?: RequestInit) => {
+      if (String(url).includes('/api/notes')) asked.push(String(url))
+      return stubbed(url, init)
+    }) as unknown as typeof fetch
+
+    render(<App />)
+    await say('kehikot.hello', canvas(null, []))
+    expect(asked).toHaveLength(0)
+
+    /* The tick, and then the paper saying three times over what it is showing now: four contexts,
+       and the question this list asks its store is the same one in every one of them. */
+    const quickly = (context: Record<string, unknown>) =>
+      act(async () => {
+        window.postMessage({ type: 'kehikot.context', protocol: 2, ...context }, '*')
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      })
+    await quickly(canvas(null, ['methods']))
+    await quickly(canvas(null, ['methods'], ['chapters/3_methods.tex']))
+    await quickly(canvas(null, ['methods'], ['chapters/3_methods.tex', 'main.tex']))
+    await quickly(canvas(null, ['methods'], ['main.tex']))
+    await waitFor(() => expect(drawn()).toEqual({ methods: 2, results: 0, main: 0 }))
+    expect(asked).toHaveLength(1)
+
+    /* The canvas moved, so the same question is asked once more when it has stopped moving —
+       that is how a note lifted out of an edit arrives — and only once. */
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, STILL_MS + 150))
+    })
+    expect(asked).toHaveLength(2)
+    expect(new Set(asked).size).toBe(1)
+    expect(drawn()).toEqual({ methods: 2, results: 0, main: 0 })
+
+    /* Another part: the store already answered for the whole project, so the tick asks nothing new
+       at once, and the list is that part's notes straight away. */
+    await say('kehikot.context', canvas(null, ['results'], ['main.tex']))
+    expect(drawn()).toEqual({ methods: 0, results: 1, main: 0 })
+    expect(asked).toHaveLength(2)
   })
 })

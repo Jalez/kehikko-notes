@@ -70,6 +70,15 @@ import { useKehikot, type GotoHandler, type Passage } from '@/wire/use-kehikot.t
  * the heading stays — see `NoProject`, which is the only screen an unframed
  * page can reach now that a project's notes live in that project.
  */
+/**
+ * How long the canvas has to be still before the same question is asked again.
+ *
+ * Long enough to span the contexts one press on a canvas is made of — they
+ * arrive within tens of milliseconds of each other — and short enough that a
+ * note lifted out of an edit is on screen before anybody has looked for it.
+ */
+export const STILL_MS = 250
+
 /** What somebody was typing, kept across a reload: by project, then by exactly what it was aimed at. */
 const drafts = held('kehikot.notes.drafts')
 
@@ -338,7 +347,7 @@ export function App() {
    * And while the ticked parts decide the list (`byParts`), the one ask is for
    * everything, passage or no passage: the parts narrow the answer.
    */
-  const asks: Ask[] | null = useMemo(() => {
+  const asking: Ask[] | null = useMemo(() => {
     if (where === 'listening') return null
     if (!projectPath) return null
     if (front.narrowed) {
@@ -390,6 +399,48 @@ export function App() {
   }, [where, widen, byParts, shownAt, project, projectPath, withResolved, front])
 
   /*
+   * The same question is the same VALUE, and a burst of them is one read.
+   *
+   * `asking` is rebuilt whenever anything it is made from is — and `front` is a
+   * fresh object after every context in which a container said something new
+   * about what it is showing. The list of asks that came out was usually word
+   * for word the one before, and as a new array it was a new dependency: one
+   * part picked in the host's bar, answered by a paper container that then says
+   * three times over where it now is, sent this app's store the same read four
+   * times. Each was ignored here and each was still answered there, in a queue,
+   * by a server with one thread — which is how a pick came to cost seconds.
+   *
+   * So the asks are compared by what they SAY. `asks` keeps the array it had for
+   * as long as a rebuild says the same thing, and the read below runs at once
+   * when the question changes.
+   *
+   * A rebuild that says the same thing is still not nothing: the canvas moved,
+   * and a canvas moving is very often somebody editing the document these notes
+   * are anchored in. Those re-reads were an accident and they were also how a
+   * `\todo{}` typed a moment ago arrived in this list without anybody asking.
+   * So they are kept and COLLAPSED — one read, `STILL_MS` after the canvas last
+   * moved, however many contexts the move was made of.
+   */
+  const said = asking === null ? null : JSON.stringify(asking)
+  const lastAsked = useRef<{ said: string | null; asks: Ask[] | null }>({ said: null, asks: null })
+  if (lastAsked.current.said !== said) lastAsked.current = { said, asks: asking }
+  const asks = lastAsked.current.asks
+
+  const [stirred, setStirred] = useState(0)
+  const readFor = useRef<Ask[] | null>(null)
+  useEffect(() => {
+    /* The first build of a question is the read itself, below; only a REBUILD of
+       the one already asked is a canvas that moved under it. */
+    if (readFor.current !== asks) {
+      readFor.current = asks
+      return
+    }
+    if (!asks || asks.length === 0) return
+    const later = setTimeout(() => setStirred((n) => n + 1), STILL_MS)
+    return () => clearTimeout(later)
+  }, [asking, asks])
+
+  /*
    * Re-read on every change of scope, and after every write.
    *
    * Never patched in place. The server holds the notes AND resolves every
@@ -403,7 +454,10 @@ export function App() {
       return
     }
     let live = true
-    void Promise.all(asks.map(look))
+    /* Given up on as well as ignored: a read nobody is waiting for is let go of
+       at the socket, and comes back `cancelled`, which is not a refusal. */
+    const gone = new AbortController()
+    void Promise.all(asks.map((one) => look(one, gone.signal)))
       .then((answers) => {
         if (!live) return
         const refusal = answers.find((one): one is Failed => 'error' in one)
@@ -420,8 +474,9 @@ export function App() {
       })
     return () => {
       live = false
+      gone.abort()
     }
-  }, [asks, round])
+  }, [asks, round, stirred])
 
   /*
    * Every write carries the project, taken from the context AT THE MOMENT OF

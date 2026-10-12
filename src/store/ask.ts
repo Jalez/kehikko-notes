@@ -125,8 +125,8 @@ export interface Failed {
  * remedies, and this is a module whose whole argument is that those do not get
  * flattened.
  */
-export async function look(wanted: Ask): Promise<Looked | Failed> {
-  const asked = await ask<Partial<Looked>>('/api/notes', { query: query(wanted) })
+export async function look(wanted: Ask, signal?: AbortSignal): Promise<Looked | Failed> {
+  const asked = await ask<Partial<Looked>>('/api/notes', { query: query(wanted), signal })
   if (!asked.ok) return { error: asked.error, kind: asked.kind }
   const body = asked.body ?? {}
   return {

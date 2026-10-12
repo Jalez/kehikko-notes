@@ -91,9 +91,11 @@ absent from the file.
 
 ## Which files it opens
 
-One reason only: to check an anchor. Nothing is written, nothing is cached, and
-no byte of any document ever crosses a door — what comes back is a verdict and
-the note's own quote.
+One reason only: to check an anchor. Nothing is written, and no byte of any
+document ever crosses a door — what comes back is a verdict and the note's own
+quote. What it read is held in memory until the file changes (at most six
+million characters of it, least recently read first out), so a read of the notes
+costs one `stat` per document rather than the document.
 
 `NOTES_ROOTS` (colon-separated absolute paths) says where it may look. Unset, it
 falls back to the `projectPath` the host names, which is the one directory it can
