@@ -110,79 +110,138 @@ export interface Anchor {
  * the same byte span; anything that maps a match back to bytes gets the same
  * answer from either half of it.
  */
-interface Mapped {
+export interface Mapped {
   text: string
-  /** Byte offset in the source of the character at each index. */
-  startsAt: number[]
+  /**
+   * Byte offset in the source of the character at each index.
+   *
+   * Typed arrays, because this is built for every character of a document and
+   * some documents here are a megabyte of extracted PDF: two arrays of boxed
+   * numbers were most of what mapping one cost, and a mapped source is now held
+   * between reads — see `notes/source.ts` — so its size is this process's
+   * memory. Non-decreasing, which `wordsBetween` leans on.
+   */
+  startsAt: Int32Array
   /** Byte offset just past that character. */
-  endsAt: number[]
+  endsAt: Int32Array
 }
 
-/** How many bytes one UTF-16 code unit contributes to UTF-8. */
-function bytesOf(source: string, at: number): number {
-  const code = source.charCodeAt(at)
-  if (code < 0x80) return 1
-  if (code < 0x800) return 2
-  /* A surrogate pair is four bytes for two units: two each, which keeps the
-     running total right without either half claiming the other's. */
-  if (code >= 0xd800 && code <= 0xdfff) return 2
-  return 3
+/**
+ * What `\s` matches, spelled as a comparison.
+ *
+ * The same set `normalise` collapses — it has to be, or the two spellings of a
+ * passage disagree — and written out rather than asked of a regular expression
+ * because this runs once per character of every document. `test/anchor.test.ts`
+ * holds it to `/\s/` over every UTF-16 code unit there is.
+ */
+export function isSpace(code: number): boolean {
+  if (code === 0x20 || (code >= 0x09 && code <= 0x0d) || code === 0xa0) return true
+  if (code < 0x1680) return false
+  return (
+    code === 0x1680
+    || (code >= 0x2000 && code <= 0x200a)
+    || code === 0x2028
+    || code === 0x2029
+    || code === 0x202f
+    || code === 0x205f
+    || code === 0x3000
+    || code === 0xfeff
+  )
 }
 
+/**
+ * ## Map a document ONCE
+ *
+ * This walks every character of the source, so it is the expensive thing in
+ * this file, and it is a function of the source alone — nothing about a note
+ * goes into it. It was nevertheless called from inside `resolveAnchor`, which
+ * is to say once per NOTE: twenty notes on one megabyte of PDF text mapped that
+ * megabyte twenty times on every read, and a read took two seconds on a server
+ * with one thread. `resolveAll` maps each document once now, and the reader in
+ * `notes/source.ts` keeps the map until the file changes.
+ */
 export function mapSource(source: string): Mapped {
-  const out: string[] = []
-  const startsAt: number[] = []
-  const endsAt: number[] = []
+  const length = source.length
+  const startsAt = new Int32Array(length)
+  const endsAt = new Int32Array(length)
+  /* The text, as the runs of kept characters with one space between them. */
+  const runs: string[] = []
+  let kept = 0
   let byte = 0
   let pendingSpace = false
+  /* Where the run of non-whitespace being walked began, or -1 between runs. */
+  let runFrom = -1
 
-  for (let i = 0; i < source.length; i++) {
-    const char = source[i] as string
-    const width = bytesOf(source, i)
-    if (/\s/.test(char)) {
+  for (let i = 0; i < length; i++) {
+    const code = source.charCodeAt(i)
+    /* How many bytes one UTF-16 code unit contributes to UTF-8. A surrogate
+       pair is four bytes for two units: two each, which keeps the running total
+       right without either half claiming the other's. */
+    const width = code < 0x80 ? 1 : code < 0x800 ? 2 : code >= 0xd800 && code <= 0xdfff ? 2 : 3
+    if (isSpace(code)) {
+      if (runFrom !== -1) {
+        runs.push(source.slice(runFrom, i))
+        runFrom = -1
+      }
       /* A run of whitespace becomes at most one space, and it is remembered at
          the FIRST whitespace byte — so a match that begins after a line break
          reports the break rather than the last space of an indent. */
-      if (out.length && !pendingSpace) {
+      if (kept && !pendingSpace) {
         pendingSpace = true
-        out.push(' ')
-        startsAt.push(byte)
-        endsAt.push(byte + width)
+        runs.push(' ')
+        startsAt[kept] = byte
+        endsAt[kept] = byte + width
+        kept++
       } else if (pendingSpace) {
         /* Widen the space we already emitted so the run is accounted for. */
-        endsAt[endsAt.length - 1] = byte + width
+        endsAt[kept - 1] = byte + width
       }
       byte += width
       continue
     }
     pendingSpace = false
-    out.push(char)
-    startsAt.push(byte)
-    endsAt.push(byte + width)
+    if (runFrom === -1) runFrom = i
+    startsAt[kept] = byte
+    endsAt[kept] = byte + width
+    kept++
     byte += width
   }
+  if (runFrom !== -1) runs.push(source.slice(runFrom))
 
+  let text = runs.join('')
   /* Trailing whitespace collapsed to a space that nothing follows. `normalise`
      trims it, so this must too or the two spellings disagree by one character
      on every file that ends in a newline — which is every file. */
-  if (out.length && out[out.length - 1] === ' ') {
-    out.pop()
-    startsAt.pop()
-    endsAt.pop()
+  if (kept && pendingSpace) {
+    text = text.slice(0, -1)
+    kept--
   }
 
-  return { text: out.join(''), startsAt, endsAt }
+  return { text, startsAt: startsAt.subarray(0, kept), endsAt: endsAt.subarray(0, kept) }
 }
 
-/** The normalised words the source holds between two byte offsets. */
-function wordsBetween(mapped: Mapped, from: number, to: number): string {
-  const chars: string[] = []
-  for (let i = 0; i < mapped.text.length; i++) {
-    const start = mapped.startsAt[i] as number
-    if (start >= to) break
-    if (start >= from) chars.push(mapped.text[i] as string)
+/** The first index whose character starts at or after `byte`. `startsAt` never decreases. */
+function firstAtOrAfter(startsAt: Int32Array, byte: number): number {
+  let low = 0
+  let high = startsAt.length
+  while (low < high) {
+    const mid = (low + high) >>> 1
+    if ((startsAt[mid] as number) < byte) low = mid + 1
+    else high = mid
   }
-  return chars.join('').trim()
+  return low
+}
+
+/**
+ * The normalised words the source holds between two byte offsets.
+ *
+ * Found by bisection rather than by walking from the top of the document: a
+ * note near the end of a long file used to cost the whole file to look at.
+ */
+function wordsBetween(mapped: Mapped, from: number, to: number): string {
+  const first = firstAtOrAfter(mapped.startsAt, from)
+  const past = Math.max(first, firstAtOrAfter(mapped.startsAt, to))
+  return mapped.text.slice(first, past).trim()
 }
 
 /** Every place the words appear, as byte ranges in the real file. */
@@ -204,8 +263,16 @@ function occurrences(mapped: Mapped, needle: string): { from: number; to: number
  *
  * `source` is the file's text, or `null` when this app could not read it. Null
  * is a first-class answer here and not a failure: see `unverified` above.
+ *
+ * It may also be the text ALREADY MAPPED, which is what anything resolving more
+ * than one note against a document must hand over — see `mapSource` for what
+ * mapping it again per note cost. A bare string is mapped here, once, for the
+ * caller with one note and one question.
  */
-export function resolveAnchor(note: Pick<Note, 'from' | 'to' | 'quoted' | 'page'>, source: string | null): Anchor {
+export function resolveAnchor(
+  note: Pick<Note, 'from' | 'to' | 'quoted' | 'page'>,
+  source: string | Mapped | null,
+): Anchor {
   if (note.from === null || note.to === null) {
     return {
       state: 'unranged',
@@ -245,7 +312,7 @@ export function resolveAnchor(note: Pick<Note, 'from' | 'to' | 'quoted' | 'page'
     }
   }
 
-  const mapped = mapSource(source)
+  const mapped = typeof source === 'string' ? mapSource(source) : source
 
   if (wordsBetween(mapped, note.from, note.to) === needle) {
     return { state: 'exact', from: note.from, to: note.to, drifted: 0, said: 'Still points at the words it was written about.' }
@@ -324,11 +391,33 @@ export interface Anchored {
  * its arguments and the rules about which files may be opened stay in one
  * place. It is called once per distinct path, not once per note: a chapter with
  * forty notes on it is read once.
+ *
+ * And MAPPED once, which is the same sentence about the step after reading and
+ * was not true until it was measured. `map` is how a caller that keeps mapped
+ * sources between reads hands one back — `notes/source.ts` — and it is asked
+ * only when some note on that document actually has words to look for: a
+ * document carrying nothing but whole-page notes is never mapped at all.
  */
-export function resolveAll(notes: Note[], read: (path: string) => string | null): Anchored[] {
+export function resolveAll(
+  notes: Note[],
+  read: (path: string) => string | null,
+  map: (path: string, source: string) => Mapped = (_path, source) => mapSource(source),
+): Anchored[] {
   const sources = new Map<string, string | null>()
+  const maps = new Map<string, Mapped>()
   return notes.map((note) => {
     if (!sources.has(note.path)) sources.set(note.path, read(note.path))
-    return { note, anchor: resolveAnchor(note, sources.get(note.path) ?? null) }
+    const source = sources.get(note.path) ?? null
+    /* The three answers that never look at the document are given without
+       mapping it. The conditions are `resolveAnchor`'s own, in its order. */
+    if (source === null || note.from === null || note.to === null || !normalise(note.quoted)) {
+      return { note, anchor: resolveAnchor(note, source) }
+    }
+    let mapped = maps.get(note.path)
+    if (!mapped) {
+      mapped = map(note.path, source)
+      maps.set(note.path, mapped)
+    }
+    return { note, anchor: resolveAnchor(note, mapped) }
   })
 }

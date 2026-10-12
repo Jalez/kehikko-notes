@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { mapSource, resolveAnchor, resolveAll } from '../notes/anchor.ts'
+import { isSpace, mapSource, resolveAnchor, resolveAll, type Mapped } from '../notes/anchor.ts'
 import type { Note } from '../notes/shape.ts'
 
 /**
@@ -197,5 +197,150 @@ describe('a note whose range is the wrong LENGTH rather than in the wrong place'
     expect(anchor.said).toContain('wrong LENGTH')
     expect(anchor.said).toContain('1 byte later')
     expect(anchor.to).toBe(TO)
+  })
+})
+
+/**
+ * The map as it was first written: one character at a time, asked of a regular
+ * expression, into three growing arrays. Kept HERE, as the definition the fast
+ * one is held to — the rewrite was for speed and must not have moved one offset.
+ */
+function mapSlowly(source: string): { text: string; startsAt: number[]; endsAt: number[] } {
+  const bytesOf = (at: number): number => {
+    const code = source.charCodeAt(at)
+    if (code < 0x80) return 1
+    if (code < 0x800) return 2
+    if (code >= 0xd800 && code <= 0xdfff) return 2
+    return 3
+  }
+  const out: string[] = []
+  const startsAt: number[] = []
+  const endsAt: number[] = []
+  let byte = 0
+  let pendingSpace = false
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i] as string
+    const width = bytesOf(i)
+    if (/\s/.test(char)) {
+      if (out.length && !pendingSpace) {
+        pendingSpace = true
+        out.push(' ')
+        startsAt.push(byte)
+        endsAt.push(byte + width)
+      } else if (pendingSpace) {
+        endsAt[endsAt.length - 1] = byte + width
+      }
+      byte += width
+      continue
+    }
+    pendingSpace = false
+    out.push(char)
+    startsAt.push(byte)
+    endsAt.push(byte + width)
+    byte += width
+  }
+  if (out.length && out[out.length - 1] === ' ') {
+    out.pop()
+    startsAt.pop()
+    endsAt.pop()
+  }
+  return { text: out.join(''), startsAt, endsAt }
+}
+
+describe('mapping a document quickly is mapping it the same', () => {
+  test('whitespace is exactly what a regular expression calls whitespace, for every code unit there is', () => {
+    const wrong: number[] = []
+    for (let code = 0; code <= 0xffff; code++) {
+      if (isSpace(code) !== /\s/.test(String.fromCharCode(code))) wrong.push(code)
+    }
+    expect(wrong).toEqual([])
+  })
+
+  test('the same text and the same offsets as the map it replaced, on anything a file can hold', () => {
+    /* A seeded generator, so a failure is the same failure twice. */
+    let seed = 0x2f6e2b1
+    const next = (below: number) => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+      return seed % below
+    }
+    const pieces = ['a', 'Z', '{', '\\', ' ', '  ', '\n', '\r\n', '\t', '\u00a0', '\u2028', '\ufeff', 'é', 'ä', '€', '中', '😀', '\ud83d', '\ufffd', 'word', '%']
+    const cases = ['', ' ', '\n\n', 'a', ' a ', 'a\n', '\n a\n\n b \n', '😀 😀', 'é\u00a0é']
+    for (let n = 0; n < 400; n++) {
+      let made = ''
+      for (let i = next(60); i > 0; i--) made += pieces[next(pieces.length)]
+      cases.push(made)
+    }
+    for (const source of cases) {
+      const fast = mapSource(source)
+      const slow = mapSlowly(source)
+      expect(fast.text).toBe(slow.text)
+      expect(Array.from(fast.startsAt)).toEqual(slow.startsAt)
+      expect(Array.from(fast.endsAt)).toEqual(slow.endsAt)
+      /* And the bytes are real ones: every kept character starts where UTF-8 puts it. */
+      expect(fast.text.length).toBe(fast.startsAt.length)
+    }
+  })
+
+  test('the offsets it reports are offsets into the UTF-8 file', () => {
+    const source = 'Zoë wrote:\n  “the €5 fee” 😀\n'
+    const bytes = Buffer.from(source, 'utf8')
+    const mapped = mapSource(source)
+    const at = mapped.text.indexOf('€5 fee')
+    const from = mapped.startsAt[at] as number
+    const to = mapped.endsAt[at + '€5 fee'.length - 1] as number
+    expect(bytes.subarray(from, to).toString('utf8')).toBe('€5 fee')
+  })
+
+  test('a note deep in a long document is verified where it stands', () => {
+    const filler = 'Lorem ipsum dolor sit amet, consectetur.\n'.repeat(5000)
+    const long = `${filler}${SOURCE}${filler}`
+    const shift = Buffer.byteLength(filler)
+    const there = resolveAnchor(note({ from: FROM + shift, to: TO + shift }), long)
+    expect(there.state).toBe('exact')
+    const drifted = resolveAnchor(note({ from: FROM + shift - 41, to: TO + shift - 41 }), long)
+    expect(drifted).toMatchObject({ state: 'moved', from: FROM + shift, to: TO + shift, drifted: 41 })
+  })
+})
+
+describe('a document is mapped once, however many notes point into it', () => {
+  test('twenty notes on one document and one on another: two maps, not twenty-one', () => {
+    const mappedPaths: string[] = []
+    const many = Array.from({ length: 20 }, (_, i) => note({ id: `n${i}` }))
+    const out = resolveAll([...many, note({ id: 'other', path: '/other.tex' })], () => SOURCE, (path, source) => {
+      mappedPaths.push(path)
+      return mapSource(source)
+    })
+    expect(mappedPaths).toEqual(['/w/thesis/chapters/bridge.tex', '/other.tex'])
+    expect(out.map((one) => one.anchor.state)).toEqual(Array(21).fill('exact'))
+  })
+
+  test('and says of each note exactly what resolving it alone says', () => {
+    const edited = `A paragraph somebody added.\n\n${SOURCE}`
+    const notes = [
+      note({ id: 'moved' }),
+      note({ id: 'gone', quoted: 'words that were never here' }),
+      note({ id: 'page', from: null, to: null, quoted: '' }),
+      note({ id: 'bare', quoted: '   ' }),
+      note({ id: 'short', to: TO - 1 }),
+      note({ id: 'unread', path: '/cannot/open.tex' }),
+    ]
+    const read = (path: string) => (path === '/cannot/open.tex' ? null : edited)
+    const together = resolveAll(notes, read)
+    expect(together.map((one) => one.anchor)).toEqual(notes.map((one) => resolveAnchor(one, read(one.path))))
+    expect(together.map((one) => one.anchor.state)).toEqual(['moved', 'adrift', 'unranged', 'unverified', 'moved', 'unverified'])
+  })
+
+  test('a document with nothing on it but whole-page notes is never mapped at all', () => {
+    let maps = 0
+    resolveAll([note({ from: null, to: null, quoted: '' }), note({ id: 'b', quoted: '' })], () => SOURCE, (_path, source) => {
+      maps++
+      return mapSource(source)
+    })
+    expect(maps).toBe(0)
+  })
+
+  test('a map handed over is used as it stands', () => {
+    const mapped: Mapped = mapSource(SOURCE)
+    expect(resolveAnchor(note(), mapped)).toEqual(resolveAnchor(note(), SOURCE))
   })
 })
