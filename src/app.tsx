@@ -1,13 +1,12 @@
 import { Plus } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import { FOCUS_WHERE } from 'kehikot-module-protocol'
 import { held, probeServer } from 'kehikot-module-protocol/client'
 import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
 
 import { ID } from '../manifest.ts'
 import { aimOf, aimOffer, briefOfPicked, inFrontOf, merged, saidOfEmpty, whyEmpty, type Shown } from '../notes/aim.ts'
-import { briefOfParts, focusOn, ledByParts, saidOfNone } from '../notes/focus.ts'
+import { BRIEF_BY_PARTS, focusOn, ledByParts, saidOfNone } from '../notes/focus.ts'
 import { keyOf, shownAt as heldAt, standing, type Pointed } from '../notes/pointed.ts'
 import { briefOf, fileOf, scopeOf, type Scope } from '../notes/scope.ts'
 import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
@@ -683,7 +682,7 @@ export function App() {
   /*
    * The parts of the epic ticked in the host's bar: of the notes the store
    * answered with, the ones whose file a ticked part owns. Nothing is said
-   * about the rest: the heading names the parts and the host's bar shows the
+   * about the rest, and the heading does not name the parts: the host's bar shows the
    * ticks. Nothing ticked is `looked` itself. Everything
    * DRAWN below reads `seen`; whether an empty place opens the form still
    * reads `looked`. See `notes/focus.ts`, and `byParts` above for what a tick
@@ -1000,15 +999,13 @@ export function App() {
             title={
               front.narrowed
                 ? front.documents.map((doc) => doc.path).join('\n')
-                : byParts
-                  ? FOCUS_WHERE
-                  : widen === 'everything'
-                    ? undefined
-                    : (shownAt?.path ?? undefined)
+                : byParts || widen === 'everything'
+                  ? undefined
+                  : (shownAt?.path ?? undefined)
             }
             className="min-w-0 flex-1 truncate text-xs font-medium"
           >
-            {front.narrowed ? briefOfPicked(front) : byParts ? briefOfParts(focus.parts) : briefOf(shownScope)}
+            {front.narrowed ? briefOfPicked(front) : byParts ? BRIEF_BY_PARTS : briefOf(shownScope)}
           </p>
           {climbs.map((climb) => (
             <Button

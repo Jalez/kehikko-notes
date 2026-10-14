@@ -115,6 +115,11 @@ const heading = () => document.querySelector('[data-testid="scope"]')?.textConte
 /** Anything on the page that talks about the ticks: there is to be none while there is a note to show. */
 const notice = () =>
   document.querySelector('[data-testid="focus"]') !== null || /outside the|picked part|host’s bar/.test(document.body.textContent ?? '')
+/** Whether the heading, or its tooltip, names a part of the epic: nothing standing is drawn about the pick. */
+const named = () => {
+  const scope = document.querySelector('[data-testid="scope"]')
+  return /Introduction|Methods|Results|Discussion|host’s bar/.test(`${scope?.textContent ?? ''} ${scope?.getAttribute('title') ?? ''}`)
+}
 const empty = () => document.querySelector('[data-testid="empty"]')?.textContent ?? null
 
 describe('the notes follow the ticked parts, whatever passage the canvas last held', () => {
@@ -129,7 +134,8 @@ describe('the notes follow the ticked parts, whatever passage the canvas last he
     /* A part ticked: the whole part, not the page the caret happens to be on. */
     await say('kehikot.context', canvas(page('chapters/3_methods.tex', 19), ['methods']))
     await waitFor(() => expect(drawn()).toEqual({ methods: 2, results: 0, main: 0 }))
-    expect(heading()).toBe('Methods')
+    expect(heading()).toBe('notes in this project')
+    expect(named()).toBe(false)
     expect(notice()).toBe(false)
     /* No ladder out from a passage the list is not standing on. */
     expect(document.querySelector('[data-testid="widen"]')).toBeNull()
@@ -138,13 +144,15 @@ describe('the notes follow the ticked parts, whatever passage the canvas last he
        nothing new until a person touches it. */
     await say('kehikot.context', canvas(page('chapters/3_methods.tex', 19), ['results']))
     await waitFor(() => expect(drawn()).toEqual({ methods: 0, results: 1, main: 0 }))
-    expect(heading()).toBe('Results')
+    expect(heading()).toBe('notes in this project')
+    expect(named()).toBe(false)
     expect(notice()).toBe(false)
 
     /* Two parts, and the passage names the one file the caret is in. */
     await say('kehikot.context', canvas(page('chapters/4_results.tex', 30), ['methods', 'results']))
     await waitFor(() => expect(drawn()).toEqual({ methods: 2, results: 1, main: 0 }))
-    expect(heading()).toBe('Methods, Results')
+    expect(heading()).toBe('notes in this project')
+    expect(named()).toBe(false)
     expect(notice()).toBe(false)
 
     /* Nothing ticked again: back to following the passage, down to its page. */
@@ -182,7 +190,8 @@ describe('the notes follow the ticked parts, whatever passage the canvas last he
     render(<App />)
     await say('kehikot.hello', canvas(null, ['results']))
     await waitFor(() => expect(drawn()).toEqual({ methods: 0, results: 1, main: 0 }))
-    expect(heading()).toBe('Results')
+    expect(heading()).toBe('notes in this project')
+    expect(named()).toBe(false)
   })
 
   test('a stale passage in a file no ticked part owns does not empty the list', async () => {

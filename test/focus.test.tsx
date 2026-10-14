@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { partsDeclaration, type EpicPart } from 'kehikot-module-protocol'
+import { emptySaid, partsDeclaration, type EpicPart } from 'kehikot-module-protocol'
 
 import { MANIFEST } from '../manifest.ts'
 import type { Anchored } from '../notes/anchor.ts'
-import { anchorOf, briefOfParts, focusOn, ledByParts, saidOfNone } from '../notes/focus.ts'
+import { BRIEF_BY_PARTS, NOUN, anchorOf, focusOn, ledByParts, saidOfNone } from '../notes/focus.ts'
 import type { Note } from '../notes/shape.ts'
 import { NoteRow } from '../src/view/note.tsx'
 
@@ -90,6 +90,9 @@ describe('which notes the ticked parts leave', () => {
   test('the one sentence there is: a list the ticks emptied says so, and says nothing else', () => {
     expect(saidOfNone(parts('methods'))).toBe('No note is in the picked part.')
     expect(saidOfNone(parts('intro', 'methods'))).toBe('No note is in the picked parts.')
+    /* The words are the protocol's, not this module's own spelling of them. */
+    expect(saidOfNone(parts('methods'))).toBe(emptySaid(parts('methods'), NOUN))
+    expect(saidOfNone(parts())).toBe('')
   })
 
   test('another epic’s parts own none of this paper’s files', () => {
@@ -137,9 +140,8 @@ describe('when the ticked parts decide the list', () => {
     expect(ledByParts({ focused: true, narrowed: false, widen: 'everything' })).toBe(false)
   })
 
-  test('the heading names the ticked parts, in the epic’s order', () => {
-    expect(briefOfParts(parts('methods'))).toBe('Methods')
-    expect(briefOfParts(parts('methods', 'intro'))).toBe('Introduction, Methods')
-    expect(briefOfParts(parts())).toBe('')
+  test('the heading then says where the notes were asked from, and names no part', () => {
+    expect(BRIEF_BY_PARTS).toBe('notes in this project')
+    for (const part of parts('methods', 'intro')) expect(BRIEF_BY_PARTS).not.toContain(part.heading)
   })
 })
