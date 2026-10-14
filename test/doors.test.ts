@@ -3,6 +3,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { toolEffect } from 'kehikot-module-protocol'
+
 /**
  * Every door, over a store of its own.
  *
@@ -104,6 +106,32 @@ describe('the agent door refuses what is not a question', () => {
   test('a tool nobody has is named back rather than shrugged at', () => {
     expect(rpc('delete_everything', {}).failed).toBe(true)
     expect(rpc('delete_everything', {}).text).toContain('delete_everything')
+  })
+
+  test('every tool says whether it reads, and none that writes says it deletes', () => {
+    const reply = answer('POST', '/mcp', new URLSearchParams(), { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
+    const tools = (reply?.body as { result: { tools: { name: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean }; inputSchema: { properties: Record<string, unknown>; required: string[] } }[] } }).result.tools
+    expect(Object.fromEntries(tools.map((one) => [one.name, toolEffect(one)]))).toEqual({
+      notes: 'reads',
+      add_note: 'writes',
+      reply_to_note: 'writes',
+      resolve_note: 'writes',
+      /* The only one that replaces something: where the note pointed. */
+      reanchor_note: 'destroys',
+      read_source_notes: 'writes',
+    })
+    for (const one of tools) {
+      expect(Object.keys(one.inputSchema.properties)).toContain('project')
+      expect(Object.keys(one.inputSchema.properties)).not.toContain('projectPath')
+      expect(one.inputSchema.required).toContain('project')
+    }
+  })
+
+  test('\`projectPath\`, the name before, is still read; \`project\` is the one advertised', () => {
+    const now = rpc('notes', { project, everything: true })
+    const before = rpc('notes', { projectPath: project, everything: true })
+    expect([now.failed, before.failed]).toEqual([false, false])
+    expect(before.text).toBe(now.text)
   })
 
   test('there are six tools and no way to delete a note', () => {
@@ -322,12 +350,12 @@ describe('notes are the project’s', () => {
   test('a call that names no project is refused, and told which argument to send', () => {
     const written = rpc('add_note', { path: '/chapters/intro.tex', body: 'unattributed' })
     expect(written.failed).toBe(true)
-    expect(written.text).toContain('projectPath')
+    expect(written.text).toContain('Send the absolute directory')
     expect(written.text).toContain('will not guess')
 
     const read = rpc('notes', { everything: true })
     expect(read.failed).toBe(true)
-    expect(read.text).toContain('projectPath')
+    expect(read.text).toContain('Send the absolute directory')
 
     /* And nothing was written anywhere by the attempt. */
     expect(rpc('notes', { ...OF_PROJECT, everything: true }).text).not.toContain('unattributed')
@@ -339,7 +367,7 @@ describe('notes are the project’s', () => {
      only because there was a single file holding everybody's notes. */
   test('a tool that names a note by id is refused without the project as well', () => {
     const id = idOf(rpc('add_note', { ...OF_PROJECT, path: CHAPTER, body: 'a note to reply to' }).text)
-    expect(rpc('reply_to_note', { note: id, body: 'x' }).text).toContain('projectPath')
+    expect(rpc('reply_to_note', { note: id, body: 'x' }).text).toContain('Send the absolute directory')
     expect(rpc('reply_to_note', { ...OF_PROJECT, note: id, body: 'x' }).failed).toBe(false)
   })
 })

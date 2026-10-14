@@ -1,4 +1,4 @@
-import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
+import { KEHIKOT_DIR, doorContext, moduleFolder } from 'kehikot-module-protocol'
 import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
@@ -126,11 +126,11 @@ const AUTHOR = 'the author, in the source'
  * being asked about a document already knows which project that document is in.
  */
 const PROJECT_PROPERTIES = {
-  projectPath: {
+  project: {
     type: 'string',
     description:
       'The absolute directory the project lives in. Required. Notes are kept inside the project they are about, at '
-      + '<projectPath>/.kehikot/notes/notes.json, so this names the file to open — an address, not a filter — and there is '
+      + '<project>/.kehikot/notes/notes.json, so this names the file to open — an address, not a filter — and there is '
       + 'no answer without it.',
   },
 } as const
@@ -169,9 +169,15 @@ interface Asked {
  * agent, which has an argument to send instead. Two audiences, two sentences,
  * and each one names the remedy the reader actually has.
  */
+/**
+ * The project a call names: `project`, or `projectPath`, which is what this door called it before the
+ * protocol agreed one spelling. Both are read; only `project` is advertised.
+ */
+const projectOf = (args: Record<string, unknown>): string => str(doorContext(args).project, MAX_PATH)
+
 const NO_PROJECT =
   'That did not say which project. Notes live inside the project they are about, at '
-  + '<projectPath>/.kehikot/notes/notes.json, so projectPath is the address of the file to open and there is no answer '
+  + '<project>/.kehikot/notes/notes.json, so project is the address of the file to open and there is no answer '
   + 'without it. This app will not guess: every folder it could pick is one where a note would be written and never '
   + 'seen again. Send the absolute directory of the project the document is in.'
 
@@ -188,7 +194,7 @@ const NO_PROJECT =
  * to fix the wrong argument.
  */
 function asked(args: Record<string, unknown>): Asked | string {
-  const projectPath = str(args.projectPath, MAX_PATH)
+  const projectPath = projectOf(args)
   if (!projectPath) return NO_PROJECT
   const everything = args.everything === true || args.everything === 'true'
   /*
@@ -342,7 +348,24 @@ export function look(asked: Asked, includeResolved: boolean): Looked {
  * "what is at bytes 400–460" would make this a file-reading service on loopback
  * with a notes app bolted to it.
  */
+/** What each tool says it does: a reader, a write that deletes nothing, or one that replaces what was there. */
+const ANNOTATIONS: Record<string, Record<string, boolean>> = {
+  notes: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  /* Adds a note, or a reply, or closes/reopens one: nothing is removed or overwritten. */
+  add_note: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  reply_to_note: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  resolve_note: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  /* Moves where a note points: the old anchor is replaced. */
+  reanchor_note: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  /* Adds notes lifted from a file, once each; "Nothing is ever deleted". */
+  read_source_notes: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+}
+
 function tools() {
+  return listed().map((tool) => ({ ...tool, annotations: ANNOTATIONS[tool.name] }))
+}
+
+function listed() {
   return [
     {
       name: 'notes',
@@ -361,7 +384,7 @@ function tools() {
           everything: { type: 'boolean', description: 'Every note in the project, ignoring path, page and range.' },
           include_resolved: { type: 'boolean', description: 'Show notes somebody has already closed. Defaults to false.' },
         },
-        required: ['projectPath'],
+        required: ['project'],
       },
     },
     {
@@ -380,7 +403,7 @@ function tools() {
           body: { type: 'string', description: `What you have to say about it. Up to ${MAX_BODY} characters.` },
           agent: { type: 'string', description: 'Your own name, so the note says who wrote it' },
         },
-        required: ['projectPath', 'path', 'body'],
+        required: ['project', 'path', 'body'],
       },
     },
     {
@@ -397,7 +420,7 @@ function tools() {
           body: { type: 'string', description: `What you have to say. Up to ${MAX_BODY} characters.` },
           agent: { type: 'string' },
         },
-        required: ['projectPath', 'note', 'body'],
+        required: ['project', 'note', 'body'],
       },
     },
     {
@@ -415,7 +438,7 @@ function tools() {
           done: { type: 'boolean', description: 'Defaults to true' },
           agent: { type: 'string' },
         },
-        required: ['projectPath', 'note'],
+        required: ['project', 'note'],
       },
     },
     {
@@ -435,7 +458,7 @@ function tools() {
           quoted: { type: 'string', description: 'What is at that range now, verbatim' },
           agent: { type: 'string' },
         },
-        required: ['projectPath', 'note', 'from', 'to', 'quoted'],
+        required: ['project', 'note', 'from', 'to', 'quoted'],
       },
     },
     {
@@ -454,7 +477,7 @@ function tools() {
           ...PROJECT_PROPERTIES,
           path: { type: 'string', description: 'Absolute path of the .tex file to read' },
         },
-        required: ['projectPath', 'path'],
+        required: ['project', 'path'],
       },
     },
   ]
@@ -601,7 +624,7 @@ function call(name: string, args: Record<string, unknown>): string {
   }
 
   if (name === 'read_source_notes') {
-    const projectPath = str(args.projectPath, MAX_PATH)
+    const projectPath = projectOf(args)
     if (!projectPath) throw new Error(NO_PROJECT)
     const path = live(projectPath, str(args.path, MAX_PATH))
     if (!path) throw new Error('read_source_notes needs the absolute path of the document to read.')
@@ -618,7 +641,7 @@ function call(name: string, args: Record<string, unknown>): string {
         + 'changed.',
       )
     }
-    const ask = asked({ projectPath, path })
+    const ask = asked({ project: projectPath, path })
     if (typeof ask === 'string') throw new Error(ask)
     return `${done.said}\n\n${lookText(look(ask, false))}`
   }
@@ -628,7 +651,7 @@ function call(name: string, args: Record<string, unknown>): string {
      without the path there is no file to look in. It was possible before only
      because there was one file holding everybody's notes — which is exactly the
      arrangement this change removed. */
-  const projectPath = str(args.projectPath, MAX_PATH)
+  const projectPath = projectOf(args)
   if (!projectPath) throw new Error(NO_PROJECT)
 
   const id = str(args.note, MAX_ID)
