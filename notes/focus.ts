@@ -1,4 +1,4 @@
-import { narrowToFocus, pickedParts, type Anchors, type EpicPart } from 'kehikot-module-protocol'
+import { emptySaid, narrowToFocus, pickedParts, type Anchors, type EpicPart } from 'kehikot-module-protocol'
 
 import type { Anchored } from './anchor.ts'
 
@@ -16,7 +16,7 @@ import type { Anchored } from './anchor.ts'
  * The list used to carry a line of its own under the heading — `26 notes
  * outside the picked part (Methods).` — and it cost a row of a container
  * whose rows are the point. The host's bar already says which parts are
- * ticked, and the heading of this list names them in the line it had anyway;
+ * ticked, and the heading of this list does not say it again (`BRIEF_BY_PARTS`);
  * the notes that are drawn are the message. The one thing still said is why
  * a list is EMPTY when the ticks emptied it (`saidOfNone`), in the place the
  * list would have been, because an empty pane with no reason reads as broken.
@@ -52,10 +52,16 @@ export function ledByParts(input: { focused: boolean; narrowed: boolean; widen: 
   return input.focused && !input.narrowed && input.widen === null
 }
 
-/** The heading for a list the ticked parts decide: their names, in the epic's order. A label, for the column it sits in. */
-export function briefOfParts(parts: readonly EpicPart[]): string {
-  return pickedParts(parts).map((part) => part.heading || part.id).join(', ')
-}
+/**
+ * The heading for a list the ticked parts decide. It says where the notes were
+ * asked from — the whole project, not the reader's passage — and nothing about
+ * the ticks: it used to print the parts' names, which was a standing line about
+ * the pick, and the host's bar is where a pick is said.
+ */
+export const BRIEF_BY_PARTS = 'notes in this project'
+
+/** What one item is called in the protocol's sentence for an empty view. */
+export const NOUN = 'note'
 
 /** What ties a note to a part: the file it was written against. Absolute here; the protocol finds the paper's folder in it. */
 export function anchorOf(one: Anchored): Anchors {
@@ -107,7 +113,7 @@ export function focusOn<L extends Groups>(
   }
 }
 
-/** The one sentence for a list the ticks emptied, drawn where the list would have been. */
+/** The one sentence for a list the ticks emptied, drawn where the list would have been. The words are the protocol's. */
 export function saidOfNone(parts: readonly EpicPart[]): string {
-  return `No note is in the picked ${pickedParts(parts).length === 1 ? 'part' : 'parts'}.`
+  return emptySaid(parts, NOUN)
 }
