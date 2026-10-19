@@ -19,6 +19,7 @@ import { Compose } from '@/view/compose.tsx'
 import { NoteRow, type NoteActions } from '@/view/note.tsx'
 import { useRoom } from '@/view/room.ts'
 import { NO_STORE, Nowhere, Trouble } from '@/view/screens.tsx'
+import { heldAtProject } from '@/wire/held-at-project.ts'
 import { useKehikot, type GotoHandler, type Passage } from '@/wire/use-kehikot.ts'
 
 /**
@@ -171,7 +172,7 @@ export function App() {
     )
   }, [])
 
-  const { where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point } = useKehikot(ID, onGoto)
+  const { where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point } = useKehikot(ID, onGoto)
   /* How this page's own server last answered: `down` when nothing did, `stale` when it has restarted under this page. */
   const server = useServerStanding()
 
@@ -502,7 +503,7 @@ export function App() {
    * by the write that kept it, by emptying the box, and by cancel.
    */
   /* The same object for the same project, so it is a dependency as it stands. */
-  const here = projectPath ? drafts.at(projectPath) : undefined
+  const here = heldAtProject(drafts, { projectId, projectPath })
   const newTarget = passage ? `new:${passage.path}|${passage.page ?? ''}|${passage.from ?? ''}|${passage.to ?? ''}` : null
   /* Which target the words in the composer are held under, so moving the reader moves the copy rather than leaving two. */
   const draftAt = useRef<string | null>(null)

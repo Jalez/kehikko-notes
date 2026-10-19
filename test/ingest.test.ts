@@ -38,7 +38,7 @@ const ORIGINAL = [
 process.env.NOTES_ROOTS = home
 process.env.NOTES_AGENT = 'a test agent'
 
-const { answer } = await import('../doors.ts')
+const { answerAt: answer } = await import('../doors.ts')
 const { forgetReads } = await import('../notes/ingest.ts')
 
 function rpc(name: string, args: Record<string, unknown>) {

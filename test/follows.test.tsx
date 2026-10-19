@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 import { mailbox, resetServerStanding } from 'kehikot-module-protocol/client'
 
-import { TICKET, answer as door } from '../doors.ts'
+import { TICKET, answerAt as door } from '../doors.ts'
 import { App, STILL_MS } from '../src/app.tsx'
 
 /**

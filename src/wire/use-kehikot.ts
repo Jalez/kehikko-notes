@@ -37,6 +37,8 @@ export interface Kehikot {
   project: string | null
   /** Where that project is on disk. What this app's store is actually partitioned by. */
   projectPath: string | null
+  /** The project's permanent id (host 2.1.0+), the same after the folder is renamed. Null from an older host. */
+  projectId: string | null
   /**
    * Where the reader is pointing, or null.
    *
@@ -153,11 +155,11 @@ export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
   /* A string, which is what makes it stable: an unmoved canvas flattens to the same characters,
      and equal strings are the same dependency. */
   const containers = flattenContainers(host.containers)
-  const { where, project, projectPath, passage, chosen, epic, parts, resize, filters, point } = host
+  const { where, project, projectPath, projectId, passage, chosen, epic, parts, resize, filters, point } = host
 
   return useMemo(
-    () => ({ where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point }),
-    [where, project, projectPath, passage, chosen, containers, epic, parts, resize, filters, point],
+    () => ({ where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point }),
+    [where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point],
   )
 }
 

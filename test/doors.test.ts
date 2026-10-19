@@ -33,7 +33,7 @@ const TO = 'A module is one origin or it is nothing.'.length
 process.env.NOTES_ROOTS = home
 process.env.NOTES_AGENT = 'a test agent'
 
-const { answer, BUILD, MANIFEST, TICKET } = await import('../doors.ts')
+const { answerAt: answer, BUILD, MANIFEST, TICKET } = await import('../doors.ts')
 const { doorsFetch } = await import('kehikot-module-protocol/serve')
 
 /** The id `add_note` reports back, so nothing here has to guess one out of prose. */
