@@ -1,5 +1,5 @@
 import { KEHIKOT_DIR, doorContext, moduleFolder } from 'kehikot-module-protocol'
-import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
+import { DOOR_PROJECT_SAYS, establishBuild, mintTicket, refuseTicket, resolveDoorProject, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import { FILE } from './store.ts'
@@ -753,7 +753,7 @@ function mcp(rpc: Rpc): Reply {
  * which is how the page, the client module and Vite's own hot-reload socket keep
  * working without being enumerated here.
  */
-export function answer(
+export function answerAt(
   method: string,
   path: string,
   query: URLSearchParams,
@@ -901,6 +901,68 @@ export function answer(
      and serve as a source file. Anything else is not ours at all. */
   if (path.startsWith('/api/')) return bad('not here', 404)
   return null
+}
+
+/**
+ * Every door, asked of the host first.
+ *
+ * `answerAt` works on a project path as written; this decides which path that is. A project is its
+ * id, not its folder, so a path a caller learnt may be one the project has left. The project a caller
+ * names — in a tool call, the page's request, or a health check — is put to the host
+ * (`resolveDoorProject`), and `answerAt` is only given the path the host vouched for. A refusal is the
+ * shared sentence; with no host to ask, nothing is read and nothing is written.
+ */
+export async function answer(
+  method: string,
+  path: string,
+  query: URLSearchParams,
+  body: Record<string, unknown> | null,
+  ticket: string | null,
+): Promise<Reply | null> {
+  if (path === '/mcp' && method === 'POST' && body && body.method === 'tools/call') {
+    const params = (body.params ?? {}) as { name?: unknown; arguments?: Record<string, unknown> }
+    const args = { ...(params.arguments ?? {}) }
+    const given = projectOf(args)
+    if (!TOOL_NAMES.includes(String(params.name ?? '')) || !given) return answerAt(method, path, query, body, ticket)
+    const at = await resolveDoorProject(given)
+    if (!at.ok) {
+      return ok({ jsonrpc: '2.0', id: body.id ?? null, result: { content: [{ type: 'text', text: at.why }], isError: true } })
+    }
+    delete args.projectPath
+    const reply = answerAt(method, path, query, { ...body, params: { ...params, arguments: { ...args, project: at.path } } }, ticket)
+    if (at.movedFrom) {
+      const result = (reply?.body as { result?: { content?: { type: string; text: string }[] } } | null)?.result
+      result?.content?.push({ type: 'text', text: DOOR_PROJECT_SAYS.followed(at.movedFrom, at.path) })
+    }
+    return reply
+  }
+
+  const reads = method === 'GET' && (path === '/healthz' || path === '/api/notes')
+  const writes = method === 'POST' && path === '/api/note' && ticket === TICKET
+  if (reads || writes) {
+    const named = reads ? query.get('projectPath') : body?.projectPath
+    if (typeof named === 'string' && named.trim()) {
+      const at = await resolveDoorProject(named)
+      if (!at.ok) {
+        return path === '/healthz'
+          ? ok({ ok: false, id: ID, version: VERSION, notes: null, trouble: at.why })
+          : bad(at.why)
+      }
+      let reply: Reply | null
+      if (reads) {
+        const asked = new URLSearchParams(query)
+        asked.set('projectPath', at.path)
+        reply = answerAt(method, path, asked, body, ticket)
+      } else {
+        reply = answerAt(method, path, query, { ...body, projectPath: at.path }, ticket)
+      }
+      if (at.movedFrom && reply && typeof reply.body === 'object' && reply.body) {
+        reply = { ...reply, body: { ...reply.body, followed: DOOR_PROJECT_SAYS.followed(at.movedFrom, at.path) } }
+      }
+      return reply
+    }
+  }
+  return answerAt(method, path, query, body, ticket)
 }
 
 export { MANIFEST }
