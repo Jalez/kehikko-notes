@@ -1,6 +1,6 @@
 {
   "name": "kehikko-notes",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "description": "Notes anchored to a place in a document: a file, a page, a byte range, and the words that were there when the note was written. The pane narrows as the reader narrows. An app: its own store, its own page, its own port.",
