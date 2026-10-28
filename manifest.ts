@@ -115,15 +115,13 @@ export const PREFERRED_PORT = 7940
  * beside them would be offering a second, worse place to write the same thing
  * down.
  *
- * ## The mode, and why it is epic-scoped
+ * ## The mode, and why it is at `epic`
  *
- * One mode, which becomes an ordinary tab in the mode row. `scope: 'epic'`
- * because an epic-scoped mode is the one that receives `kehikot.context` — and
- * the context is where `passage` lives. A `global` mode is never sent one,
- * which for this app would mean a container that can never learn what anybody is
- * pointing at. It also carries `projectPath`, which is what partitions the
- * store, so a global mode would additionally mean every project's notes in one
- * pile.
+ * One mode, at `epic` (protocol 2.29.0): a note is anchored in a passage of the
+ * open epic's documents, and the list is the epic's, narrowed to the parts
+ * picked in the host's bar. The store is one file per project
+ * (`projectPath` partitions it), filtered to the epic when read. The context
+ * it is told on every switch carries the `passage` the list follows.
  *
  * ## Storage, and why THIS module asks for it
  *
@@ -197,7 +195,10 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     + 'author’s own \\todo{} and % annotations, lifted out of the .tex; after editing one call `read_source_notes` '
     + 'on that file. Never assume a note is stale because it is old.',
   entry: '/app',
-  modes: [{ id: 'notes', label: 'Notes', scope: 'epic' }],
+  /* What its content belongs to (protocol 2.29.0): one mode per scope, the default first. */
+  modes: [
+    { id: 'notes', label: 'Notes', scope: 'epic', scopeSays: 'the notes anchored in the open epic’s documents' },
+  ],
   mcp: {
     url: '/mcp',
     transport: 'http',
