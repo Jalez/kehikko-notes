@@ -20,7 +20,8 @@ import { NoteRow, type NoteActions } from '@/view/note.tsx'
 import { useRoom } from '@/view/room.ts'
 import { NO_STORE, Nowhere, Trouble } from '@/view/screens.tsx'
 import { heldAtProject } from '@/wire/held-at-project.ts'
-import { useKehikot, type GotoHandler, type Passage } from '@/wire/use-kehikot.ts'
+import { footerItems, footerPressed, headerItems, type Climb, type FooterState } from '@/wire/footer.ts'
+import { useKehikot, type GotoHandler, type Passage, type PressHandler } from '@/wire/use-kehikot.ts'
 
 /**
  * The page.
@@ -172,7 +173,13 @@ export function App() {
     )
   }, [])
 
-  const { where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point } = useKehikot(ID, onGoto)
+  /* What a press in the host's header or footer does, filled in below once the page knows what is
+     on offer; a ref, so the press handler is made once. */
+  const pressed = useRef<PressHandler>(() => 'This page is not ready for that yet.')
+  const onPress = useCallback<PressHandler>((press) => pressed.current(press), [])
+
+  const { where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter } =
+    useKehikot(ID, onGoto, onPress)
   /* How this page's own server last answered: `down` when nothing did, `stale` when it has restarted under this page. */
   const server = useServerStanding()
 
@@ -266,7 +273,7 @@ export function App() {
    * already is.
    */
   const climbs = useMemo(() => {
-    const out: { said: string; press: () => void }[] = []
+    const out: { id: Climb; said: string; press: () => void }[] = []
     /* No ladder while the picks narrow the list: the ladder climbs out from
        the reader's passage, and the list is not standing on it. The way out
        is the `aim` control in the container header. */
@@ -275,12 +282,12 @@ export function App() {
        to climb out from, and the way out is the ticks in the host's bar. */
     if (byParts) return out
     if (widen === null && (shownScope.kind === 'passage' || shownScope.kind === 'page')) {
-      out.push({ said: `all of ${fileOf(shownScope.path)}`, press: () => setWiden('document') })
+      out.push({ id: 'document', said: `all of ${fileOf(shownScope.path)}`, press: () => setWiden('document') })
     }
     if (widen === 'document') {
-      out.push({ said: 'all in project', press: () => setWiden('everything') })
+      out.push({ id: 'everything', said: 'all in project', press: () => setWiden('everything') })
     }
-    if (widen !== null) out.push({ said: 'follow the reader', press: () => setWiden(null) })
+    if (widen !== null) out.push({ id: 'follow', said: 'follow the reader', press: () => setWiden(null) })
     return out
   }, [front.narrowed, byParts, widen, shownScope])
 
@@ -854,28 +861,6 @@ export function App() {
     </>
   )
 
-  if (notReady) return covered(null)
-  if (looked?.trouble) return covered(<Trouble said={looked.trouble} />)
-  if (!asks) return covered(<Nowhere project={project} onEverything={() => setWiden('everything')} />)
-  /* The picks emptied it: say which containers are picked out and that they
-     show no document. Not `Nowhere`, whose sentence is about nobody pointing
-     — somebody may well be — and whose press widens to the project, which is
-     not the way out of this. The way out is the `aim` control in the header. */
-  const emptied = whyEmpty(front)
-  if (emptied) {
-    return covered(
-      <div className="min-w-0 space-y-2 p-3">
-        <p data-testid="narrowed-empty" className="text-xs text-muted-foreground">
-          {emptied}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Untick a container, pick out one that shows a document, or set this container’s aim to everything on this
-          kehikko.
-        </p>
-      </div>,
-    )
-  }
-
   /* Writing anchors a note to the reader's own passage. While the picks
      narrow the list, that is only honest when the passage's document is one of
      the documents on screen; a note written into a document the list is not
@@ -903,6 +888,84 @@ export function App() {
    * sentence and its press, and the frame is taken only by somebody pressing.
    */
   const composing = canWrite && (writing || (nothingHere && room.compose === 'inline'))
+
+  const emptied = whyEmpty(front)
+
+  /**
+   * The rows the host draws, when it draws a footer.
+   *
+   * `footed` is the whole switch: when the host says it draws a declared footer, this page declares
+   * a header (the one "New note" run) and a footer (the scope, the way back beside it, the count,
+   * and what went wrong), and draws neither its heading nor those lines itself. With any other host
+   * nothing is declared and the page is drawn exactly as it always was. See `src/wire/footer.ts`.
+   *
+   * The footer only speaks for the list: the screens that stand in for it (no project, trouble,
+   * nobody pointing, the picks emptying it) say their own sentence and get an empty footer.
+   */
+  const footed = where === 'hosted' && drawsFooter === true
+  const listed = !notReady && !looked?.trouble && asks !== null && !emptied
+  const pointedNote = pointed && seen ? [...seen.shown, ...seen.adrift, ...seen.withdrawn].find((one) => one.note.id === pointed.id) : undefined
+  const footState: FooterState = {
+    scope: listed
+      ? {
+          said: front.narrowed ? briefOfPicked(front) : byParts ? BRIEF_BY_PARTS : briefOf(shownScope),
+          title: front.narrowed ? front.documents.map((doc) => doc.path).join(', ') : byParts || widen === 'everything' ? null : (shownAt?.path ?? null),
+        }
+      : null,
+    climbs: climbs.map(({ id, said }) => ({ id, said })),
+    shown: seen ? seen.shown.length : null,
+    adrift: seen?.adrift.length ?? 0,
+    elsewhere: seen?.elsewhere ?? 0,
+    withdrawn: seen?.withdrawn.length ?? 0,
+    withdrawnShown: showWithdrawn,
+    verified: seen?.verified ?? true,
+    pointed: pointedNote ? pointedNote.note.quoted || pointedNote.note.body : null,
+    refused,
+    busy,
+  }
+  /* Compared as strings, so a render that says the same thing sends nothing. */
+  const footerSaid = footed ? JSON.stringify(footerItems(footState)) : null
+  useEffect(() => {
+    if (footerSaid !== null) footer(JSON.parse(footerSaid))
+  }, [footerSaid, footer])
+  const headerSaid = footed ? JSON.stringify(headerItems({ canWrite: listed && canWrite, composing, busy })) : null
+  useEffect(() => {
+    if (headerSaid !== null) header(JSON.parse(headerSaid))
+  }, [headerSaid, header])
+  pressed.current = (press) => {
+    if (press.place === 'footer') {
+      const asked = footerPressed(press.item, footState)
+      if (typeof asked === 'string') return asked
+      const climb = climbs.find((one) => one.id === asked)
+      climb?.press()
+      return undefined
+    }
+    if (press.item !== 'write') return 'This module has no such item.'
+    if (!listed || !canWrite) return 'A note is written on the passage the reader is on: point at one in a document first.'
+    setWriting(true)
+    return undefined
+  }
+
+  if (notReady) return covered(null)
+  if (looked?.trouble) return covered(<Trouble said={looked.trouble} />)
+  if (!asks) return covered(<Nowhere project={project} onEverything={() => setWiden('everything')} />)
+  /* The picks emptied it: say which containers are picked out and that they
+     show no document. Not `Nowhere`, whose sentence is about nobody pointing
+     — somebody may well be — and whose press widens to the project, which is
+     not the way out of this. The way out is the `aim` control in the header. */
+  if (emptied) {
+    return covered(
+      <div className="min-w-0 space-y-2 p-3">
+        <p data-testid="narrowed-empty" className="text-xs text-muted-foreground">
+          {emptied}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Untick a container, pick out one that shows a document, or set this container’s aim to everything on this
+          kehikko.
+        </p>
+      </div>,
+    )
+  }
 
   const submit = () => {
     if (!draft.trim() || !passage) return
@@ -972,7 +1035,8 @@ export function App() {
    */
   return covered(
     <div className="relative flex h-dvh min-h-0 flex-col">
-      <div ref={crown} className="min-w-0 shrink-0 px-2 pt-2 pb-1 @sm/container:px-3 @sm/container:pt-3">
+      {/* Footed, the host draws the scope, the way back and "New note" in its rows. */}
+      <div ref={crown} hidden={footed} className="min-w-0 shrink-0 px-2 pt-2 pb-1 @sm/container:px-3 @sm/container:pt-3">
         {/*
          * What this container is showing, and the way out of it.
          *
@@ -1072,11 +1136,11 @@ export function App() {
            turns on has to reach the rows inside, and one of those rows may be
            excluded from it by measurement. See `index.css`. */
         data-snap={room.snap ? (loose ? '1' : 'tight') : undefined}
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto px-2 pb-2 @sm/container:px-3 @sm/container:pb-3"
+        className={'min-h-0 min-w-0 flex-1 overflow-y-auto px-2 pb-2 @sm/container:px-3 @sm/container:pb-3' + (footed ? ' pt-2' : '')}
       >
         <div ref={body} className="min-w-0 space-y-2">
           {kept ? <div className="-mx-2 @sm/container:-mx-3">{kept}</div> : null}
-          {refused ? (
+          {refused && !footed ? (
             <p data-testid="refusal" className="min-w-0 text-xs text-adrift">
               {refused}
             </p>
@@ -1085,7 +1149,7 @@ export function App() {
           {/* Which documents could not be opened, in a paragraph -- and not in a
               container with no room for a paragraph, where every row already
               carries the word `unchecked` in the one place a reader is looking. */}
-          {seen && !seen.verified && room.notices && (seen.shown.length > 0 || seen.adrift.length > 0) ? (
+          {seen && !seen.verified && room.notices && !footed && (seen.shown.length > 0 || seen.adrift.length > 0) ? (
             <p data-testid="unchecked" className="min-w-0 text-[0.7rem] text-muted-foreground">
               These documents could not be opened: each note shows the words it was written about, not what is there now.
             </p>
@@ -1180,7 +1244,7 @@ export function App() {
                * sentence under this says what they are, and a count over a list
                * a person can see is the list counting itself.
                */}
-              {showWithdrawn ? null : (
+              {showWithdrawn || footed ? null : (
                 <p data-testid="preamble-hidden" className="min-w-0 text-[0.7rem] text-muted-foreground">
                   {seen.withdrawn.length} preamble comment{seen.withdrawn.length === 1 ? '' : 's'} not shown.
                 </p>
@@ -1201,7 +1265,7 @@ export function App() {
             </section>
           ) : null}
 
-          {seen?.elsewhere ? (
+          {seen?.elsewhere && !footed ? (
             <p data-testid="elsewhere" className="min-w-0 text-[0.7rem] text-muted-foreground">
               {seen.elsewhere} more on this document, outside this selection.
             </p>

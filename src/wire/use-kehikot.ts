@@ -1,6 +1,13 @@
 import { useMemo } from 'react'
 
-import { type EpicPart, type FilterChoice, type FilterGroup, type ModuleContext } from 'kehikot-module-protocol'
+import {
+  type EpicPart,
+  type FilterChoice,
+  type FilterGroup,
+  type FooterItemInput,
+  type HeaderItemInput,
+  type ModuleContext,
+} from 'kehikot-module-protocol'
 
 import type { HostEvents } from 'kehikot-module-protocol/client'
 import { useHost, type Where } from 'kehikot-module-protocol/client/react'
@@ -138,6 +145,12 @@ export interface Kehikot {
    * must not do is throw a rejection out of a click handler.
    */
   point: (passage: Passage | null) => void
+  /** Declare the header, whole (`kehikot.header`). Declared only while the footer is (see `src/wire/footer.ts`). */
+  header: (items: HeaderItemInput[]) => void
+  /** Declare the footer, whole (`kehikot.footer`, 2.38.0). */
+  footer: (items: FooterItemInput[]) => void
+  /** Whether the host draws a declared footer: `true` only from a host that said so. Anything else draws its own. */
+  drawsFooter: boolean | null
 }
 
 /**
@@ -150,16 +163,19 @@ export interface Kehikot {
  */
 export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
-export function useKehikot(id: string, onGoto: GotoHandler): Kehikot {
-  const host = useHost(id, { onGoto })
+/** What to do when a header or footer item is pressed (`place === 'footer'` for the footer's). */
+export type PressHandler = NonNullable<HostEvents['onPress']>
+
+export function useKehikot(id: string, onGoto: GotoHandler, onPress?: PressHandler): Kehikot {
+  const host = useHost(id, { onGoto, ...(onPress ? { onPress } : {}) })
   /* A string, which is what makes it stable: an unmoved canvas flattens to the same characters,
      and equal strings are the same dependency. */
   const containers = flattenContainers(host.containers)
-  const { where, project, projectPath, projectId, passage, chosen, epic, parts, resize, filters, point } = host
+  const { where, project, projectPath, projectId, passage, chosen, epic, parts, resize, filters, point, header, footer, drawsFooter } = host
 
   return useMemo(
-    () => ({ where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point }),
-    [where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point],
+    () => ({ where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter }),
+    [where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter],
   )
 }
 
