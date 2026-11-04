@@ -368,9 +368,9 @@ describe('the not-ready moments are the shared cover, and writes carry the share
   let calls: { url: string; init: RequestInit | undefined }[] = []
 
   const settle = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))))
-  const greet = async (context: Record<string, unknown>) => {
+  const greet = async (context: Record<string, unknown>, hello: Record<string, unknown> = {}) => {
     await act(async () => {
-      window.postMessage({ type: 'kehikot.hello', protocol: 2, session: 's', state: null, context: { epic: null, theme: 'dark', ...context } }, '*')
+      window.postMessage({ type: 'kehikot.hello', protocol: 2, session: 's', state: null, ...hello, context: { epic: null, theme: 'dark', ...context } }, '*')
       await new Promise((resolve) => setTimeout(resolve, 30))
     })
   }
@@ -513,6 +513,41 @@ describe('the not-ready moments are the shared cover, and writes carry the share
     })
     expect(cover()).toBeNull()
     expect((screen.getByLabelText('Write a note about this') as HTMLTextAreaElement).value).toBe('kept words')
+  })
+
+  describe('the rows the host draws', () => {
+    let sent: { type: string; items?: { id: string; text?: string }[] }[] = []
+    const hear = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown }
+      if (data && (data.type === 'kehikot.footer' || data.type === 'kehikot.header')) sent.push(event.data)
+    }
+    beforeEach(() => {
+      sent = []
+      window.addEventListener('message', hear)
+    })
+    afterEach(() => window.removeEventListener('message', hear))
+    const last = (type: string) => sent.filter((one) => one.type === type).at(-1)
+
+    /* First: the client replays the last footer it declared after every greeting, for the life of the page. */
+    test('any other host declares nothing, and the page draws its heading as before', async () => {
+      render(<App />)
+      await greet({ project: 'thesis', projectPath: '/w/thesis', passage: PASSAGE })
+      await settle(30)
+      expect(sent).toEqual([])
+      expect(screen.getByTestId('scope').closest('[hidden]')).toBeNull()
+      expect(screen.getByTestId('scope').textContent).toContain('bridge.tex')
+    })
+
+    test('a host that draws a footer gets the scope and the count there, New note in the header, and no heading on the page', async () => {
+      render(<App />)
+      await greet({ project: 'thesis', projectPath: '/w/thesis', passage: PASSAGE }, { footer: true })
+      await settle(30)
+      const footer = last('kehikot.footer')
+      expect(footer?.items?.map((one) => one.id)).toEqual(['scope', 'document', 'count'])
+      expect(footer?.items?.find((one) => one.id === 'count')?.text).toBe('0 notes')
+      expect(last('kehikot.header')?.items?.map((one) => one.id)).toEqual(['write'])
+      expect(screen.getByTestId('scope').closest('[hidden]')).not.toBeNull()
+    })
   })
 })
 
