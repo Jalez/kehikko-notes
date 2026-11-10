@@ -1,0 +1,121 @@
+[
+  {
+    "name": "the notes on a passage",
+    "header": [
+      {
+        "kind": "run",
+        "id": "write",
+        "label": "New note",
+        "icon": "pencil",
+        "state": "idle",
+        "disabled": null
+      }
+    ],
+    "footer": [
+      {
+        "kind": "text",
+        "id": "scope",
+        "text": "this passage",
+        "tooltip": "paper/main.tex"
+      },
+      {
+        "kind": "run",
+        "id": "document",
+        "label": "All of main.tex",
+        "agents": true
+      },
+      {
+        "kind": "text",
+        "id": "count",
+        "text": "3 notes · 4 outside",
+        "level": "normal",
+        "align": "end",
+        "tooltip": "3 notes here. 4 more on this document, outside this selection."
+      }
+    ],
+    "state": true
+  },
+  {
+    "name": "every note in the project, one pointed at, saving, some adrift and unchecked",
+    "header": [
+      {
+        "kind": "run",
+        "id": "write",
+        "label": "New note",
+        "icon": "pencil",
+        "state": "busy",
+        "disabled": "A note is written on the passage the reader is on: point at one in a document first."
+      }
+    ],
+    "footer": [
+      {
+        "kind": "text",
+        "id": "scope",
+        "text": "everything"
+      },
+      {
+        "kind": "run",
+        "id": "follow",
+        "label": "Follow the reader",
+        "agents": true,
+        "icon": "undo"
+      },
+      {
+        "kind": "text",
+        "id": "pointed",
+        "text": "On “the quoted words”",
+        "tooltip": "The canvas is pointed at this note: “the quoted words”",
+        "align": "center",
+        "optional": true
+      },
+      {
+        "kind": "text",
+        "id": "saving",
+        "text": "Saving…",
+        "align": "end",
+        "optional": true
+      },
+      {
+        "kind": "text",
+        "id": "unchecked",
+        "text": "unchecked",
+        "level": "warn",
+        "align": "end",
+        "optional": true,
+        "tooltip": "These documents could not be opened: each note shows the words it was written about, not what is there now."
+      },
+      {
+        "kind": "text",
+        "id": "count",
+        "text": "3 notes · 2 adrift · 4 outside · 1 preamble hidden",
+        "level": "warn",
+        "align": "end",
+        "tooltip": "3 notes here. 2 notes can no longer be placed in this document. 4 more on this document, outside this selection. 1 preamble comment not shown."
+      }
+    ],
+    "state": true
+  },
+  {
+    "name": "the store refused",
+    "header": [
+      {
+        "kind": "run",
+        "id": "write",
+        "label": "New note",
+        "icon": "pencil",
+        "state": "idle",
+        "disabled": "A note is written on the passage the reader is on: point at one in a document first."
+      }
+    ],
+    "footer": [
+      {
+        "kind": "text",
+        "id": "refused",
+        "text": "The store would not read this project.",
+        "level": "critical",
+        "tooltip": "The store would not read this project."
+      }
+    ],
+    "state": true
+  }
+]

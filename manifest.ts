@@ -223,7 +223,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   reacts: ['passage', 'containers', 'parts'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: ['passage:set'],
+    /* `state:keep`: the protocol's kept view (2.70.0), the list's scroll kept per container by the host. */
+    uses: ['passage:set', 'state:keep'],
     storage: true,
     prompt: false,
   },

@@ -151,6 +151,11 @@ export interface Kehikot {
   footer: (items: FooterItemInput[]) => void
   /** Whether the host draws a declared footer: `true` only from a host that said so. Anything else draws its own. */
   drawsFooter: boolean | null
+  /**
+   * Say the page is drawn, so the host's cover comes off (protocol 2.70.0). Once what the page was
+   * opened for is on screen; never gated on visibility, since the host keeps a covered page hidden.
+   */
+  ready: () => void
 }
 
 /**
@@ -171,11 +176,11 @@ export function useKehikot(id: string, onGoto: GotoHandler, onPress?: PressHandl
   /* A string, which is what makes it stable: an unmoved canvas flattens to the same characters,
      and equal strings are the same dependency. */
   const containers = flattenContainers(host.containers)
-  const { where, project, projectPath, projectId, passage, chosen, epic, parts, resize, filters, point, header, footer, drawsFooter } = host
+  const { where, project, projectPath, projectId, passage, chosen, epic, parts, resize, filters, point, header, footer, drawsFooter, ready } = host
 
   return useMemo(
-    () => ({ where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter }),
-    [where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter],
+    () => ({ where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter, ready }),
+    [where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter, ready],
   )
 }
 
