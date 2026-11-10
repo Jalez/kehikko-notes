@@ -28,8 +28,8 @@ describe('a host can read this', () => {
 })
 
 describe('what it asks for', () => {
-  test('one capability, and only the one a press on a note actually needs', () => {
-    expect(MANIFEST.declares.uses).toEqual(['passage:set'])
+  test('a press on a note points the canvas, and the host keeps the view; nothing else', () => {
+    expect(MANIFEST.declares.uses).toEqual(['passage:set', 'state:keep'])
   })
 
   test('passage:set IS declared, because pressing a note points the canvas at it', () => {

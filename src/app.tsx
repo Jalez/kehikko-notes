@@ -12,6 +12,7 @@ import { briefOf, fileOf, scopeOf, type Scope } from '../notes/scope.ts'
 import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
 
 import { snappable } from '../notes/room.ts'
+import { drawnOf } from '../notes/drawn.ts'
 
 import { Button } from '@/components/ui/button.tsx'
 import { edit, look, type Anchored, type Ask, type Change, type Failed, type Looked } from '@/store/ask.ts'
@@ -178,7 +179,7 @@ export function App() {
   const pressed = useRef<PressHandler>(() => 'This page is not ready for that yet.')
   const onPress = useCallback<PressHandler>((press) => pressed.current(press), [])
 
-  const { where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter } =
+  const { where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter, ready } =
     useKehikot(ID, onGoto, onPress)
   /* How this page's own server last answered: `down` when nothing did, `stale` when it has restarted under this page. */
   const server = useServerStanding()
@@ -946,6 +947,13 @@ export function App() {
     return undefined
   }
 
+  /* Once the list (or the sentence standing in for it) is on screen, the host's cover comes off
+     (protocol 2.70.0). Not gated on `visible`: the host keeps a covered page hidden until then. */
+  const drawn = drawnOf({ cover, asks, looked, refused, emptied })
+  useEffect(() => {
+    if (drawn) ready()
+  }, [drawn, ready])
+
   if (notReady) return covered(null)
   if (looked?.trouble) return covered(<Trouble said={looked.trouble} />)
   if (!asks) return covered(<Nowhere project={project} onEverything={() => setWiden('everything')} />)
@@ -1132,6 +1140,7 @@ export function App() {
       <div
         ref={scroller}
         data-scroller="1"
+        data-kehikot-scroll
         /* Snapping is an attribute rather than a class because the rule it
            turns on has to reach the rows inside, and one of those rows may be
            excluded from it by measurement. See `index.css`. */
