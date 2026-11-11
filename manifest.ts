@@ -1,4 +1,4 @@
-import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
+import { MANIFEST_KIND, MODULE_FOLDERS, PROTOCOL, manifestSchema, moduleFolder, type Manifest } from 'kehikot-module-protocol'
 import pkg from './package.json'
 
 export const ID = 'kehikot.notes'
@@ -227,6 +227,14 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     uses: ['passage:set', 'state:keep'],
     storage: true,
     prompt: false,
+  },
+  /* The folder under `.kehikot/` this module is the only writer of (protocol 2.85.0), so a module
+     that shows the project's files can say whose a file is without naming this one. */
+  services: {
+    [MODULE_FOLDERS]: {
+      name: 'Notes',
+      folders: [{ folder: moduleFolder(ID), says: 'The notes written on the project\'s documents, each anchored to a passage, with their replies.', derived: false }],
+    },
   },
   health: '/healthz',
 })
