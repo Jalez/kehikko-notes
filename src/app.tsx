@@ -1042,7 +1042,7 @@ export function App() {
    * of overflowing.
    */
   return covered(
-    <div className="relative flex h-dvh min-h-0 flex-col">
+    <div data-kehikot-page className="relative flex h-dvh min-h-0 flex-col">
       {/* Footed, the host draws the scope, the way back and "New note" in its rows. */}
       <div ref={crown} hidden={footed} className="min-w-0 shrink-0 px-2 pt-2 pb-1 @sm/container:px-3 @sm/container:pt-3">
         {/*
