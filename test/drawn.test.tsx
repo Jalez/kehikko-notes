@@ -36,6 +36,14 @@ describe('when the page is drawn', () => {
     expect(drawnOf({ ...at, cover: 'no-project' })).toBe(true)
     expect(drawnOf({ ...at, cover: 'down' })).toBe(true)
   })
+
+  test('not while what is on screen answered another question: a switch being read (2.84.0)', () => {
+    expect(drawnOf({ ...at, looked: LOOKED, stale: true })).toBe(false)
+    expect(drawnOf({ ...at, looked: LOOKED, stale: false })).toBe(true)
+    /* A cover's sentence, or nobody pointing anywhere, is drawn whatever was read before. */
+    expect(drawnOf({ ...at, cover: 'no-project', stale: true })).toBe(true)
+    expect(drawnOf({ ...at, asks: null, stale: true })).toBe(true)
+  })
 })
 
 describe('ready() on the page', () => {

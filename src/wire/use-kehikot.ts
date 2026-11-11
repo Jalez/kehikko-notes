@@ -156,6 +156,8 @@ export interface Kehikot {
    * opened for is on screen; never gated on visibility, since the host keeps a covered page hidden.
    */
   ready: () => void
+  /** Say the page is reading what a new context asks for (protocol 2.84.0): the host may cover it saying `label`. */
+  loading: (label?: string | null) => void
 }
 
 /**
@@ -176,11 +178,11 @@ export function useKehikot(id: string, onGoto: GotoHandler, onPress?: PressHandl
   /* A string, which is what makes it stable: an unmoved canvas flattens to the same characters,
      and equal strings are the same dependency. */
   const containers = flattenContainers(host.containers)
-  const { where, project, projectPath, projectId, passage, chosen, epic, parts, resize, filters, point, header, footer, drawsFooter, ready } = host
+  const { where, project, projectPath, projectId, passage, chosen, epic, parts, resize, filters, point, header, footer, drawsFooter, ready, loading } = host
 
   return useMemo(
-    () => ({ where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter, ready }),
-    [where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter, ready],
+    () => ({ where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter, ready, loading }),
+    [where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter, ready, loading],
   )
 }
 
