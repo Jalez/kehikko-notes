@@ -12,7 +12,7 @@ import { briefOf, fileOf, scopeOf, type Scope } from '../notes/scope.ts'
 import { offer, preambleShown, resolvedShown } from '../notes/sift.ts'
 
 import { snappable } from '../notes/room.ts'
-import { drawnOf } from '../notes/drawn.ts'
+import { LOADING_NOTES, drawnOf } from '../notes/drawn.ts'
 
 import { Button } from '@/components/ui/button.tsx'
 import { edit, look, type Anchored, type Ask, type Change, type Failed, type Looked } from '@/store/ask.ts'
@@ -86,6 +86,8 @@ const drafts = held('kehikot.notes.drafts')
 
 export function App() {
   const [looked, setLooked] = useState<Looked | null>(null)
+  /* The question `looked` (or `refused`) answered: another one is a switch still being read (2.84.0). */
+  const [lookedFor, setLookedFor] = useState<unknown>(null)
   const [refused, setRefused] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   /**
@@ -179,7 +181,7 @@ export function App() {
   const pressed = useRef<PressHandler>(() => 'This page is not ready for that yet.')
   const onPress = useCallback<PressHandler>((press) => pressed.current(press), [])
 
-  const { where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter, ready } =
+  const { where, project, projectPath, projectId, passage, chosen, containers, epic, parts, resize, filters, point, header, footer, drawsFooter, ready, loading } =
     useKehikot(ID, onGoto, onPress)
   /* How this page's own server last answered: `down` when nothing did, `stale` when it has restarted under this page. */
   const server = useServerStanding()
@@ -475,10 +477,12 @@ export function App() {
           if (refusal.kind !== 'refused') return
           setRefused(refusal.error)
           setLooked(null)
+          setLookedFor(asks)
           return
         }
         setRefused(null)
         setLooked(merged(answers.filter((one): one is Looked => !('error' in one))))
+        setLookedFor(asks)
       })
     return () => {
       live = false
@@ -949,10 +953,12 @@ export function App() {
 
   /* Once the list (or the sentence standing in for it) is on screen, the host's cover comes off
      (protocol 2.70.0). Not gated on `visible`: the host keeps a covered page hidden until then. */
-  const drawn = drawnOf({ cover, asks, looked, refused, emptied })
+  const drawn = drawnOf({ cover, asks, looked, refused, emptied, stale: lookedFor !== asks })
+  /* While a switch is read, the host's cover again, in this module's words (protocol 2.84.0). */
   useEffect(() => {
     if (drawn) ready()
-  }, [drawn, ready])
+    else loading(LOADING_NOTES)
+  }, [drawn, ready, loading])
 
   if (notReady) return covered(null)
   if (looked?.trouble) return covered(<Trouble said={looked.trouble} />)
