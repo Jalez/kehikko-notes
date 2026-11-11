@@ -17,11 +17,10 @@ bun run test                  # no browser needed for any of them
 
 The ask this module exists for:
 
-> "Paper should provide information on what is being highlighted or selected, so
-> that the notes module can be used to create notes on the selected item.  Notes
-> should show notes in a way that ensures specificity based on what is selected.
-> For instance if nothing is selected but paper module shows a page, it should
-> show all notes related to that page vs if only a part of the page is selected."
+The module showing a document says what is highlighted or selected, so that
+notes can be made on the selected item; and this module shows notes as
+specifically as what is selected — every note on a page when a page is shown and
+nothing is selected, only the ones on a part when a part of it is.
 
 That is one fact — where the reader is pointing — known to four depths, so it
 travels as one nullable field in `kehikot.context`:
@@ -117,7 +116,7 @@ every read. The store is already `<projectPath>/.kehikot/notes/notes.json`, so
 the project is the file's own location; an absolute prefix on every note was a
 second copy of that fact, and it was the copy that went wrong when the folder
 moved — 59 anchors rewritten by hand when the paper moved into
-`.kehikot/paper/thesis/`. Move the project now and every note still resolves,
+another folder. Move the project now and every note still resolves,
 with nothing rewritten.
 
 Absolute paths still arrive at every door — `projectPath` is absolute by design

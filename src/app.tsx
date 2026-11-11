@@ -27,14 +27,12 @@ import { useKehikot, type GotoHandler, type Passage, type PressHandler } from '@
 /**
  * The page.
  *
- * ## What it shows, and the sentence that decides it
+ * ## What it shows, and the ask that decides it
  *
- * > "Paper should provide information on what is being highlighted or selected,
- * > so that the notes module can be used to create notes on the selected item…
- * > Notes should show notes in a way that ensures specificity based on what is
- * > selected. For instance if nothing is selected but paper module shows a page,
- * > it should show all notes related to that page vs if only a part of the page
- * > is selected."
+ * The ask, in short: the module showing a document says what is highlighted or
+ * selected, so that notes can be made on the selected item, and this module shows
+ * notes as specifically as what is selected — every note on a page when a page is
+ * shown and nothing is selected, only the ones on a part when a part of it is.
  *
  * So there is one screen and its scope is decided by `context.passage` — and,
  * since the kehikko learned to say which containers are picked out and what
